@@ -1,0 +1,114 @@
+/* Виджеты Invis: модули, настройки, прогресс. Базовая тема — в style.css. */
+
+/* ---------- контент ---------- */
+.content { gap: 12px; padding: 14px; }
+.fields-section { padding: 14px 16px; flex: 0 0 auto; }
+.fields-section h3 { margin: 0 0 12px 0; font-size: 14px; }
+
+/* ---------- бренд-строка с анимированным логотипом ---------- */
+.brand-row { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; padding: 0 4px; }
+#brandLogo {
+    width: 46px; height: 46px; flex: 0 0 auto; display: block;
+    transition: transform .3s cubic-bezier(.2,.8,.3,1.2), filter .3s ease;
+    transform-box: view-box;
+}
+.brand-text { display: flex; flex-direction: column; gap: 1px; }
+.brand-name { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: .4px; }
+.brand-sub { font-size: 11.5px; }
+
+/* периодическая анимация: орбита медленно крутится, глиф «дышит» свечением */
+.bl-orbit { transform-box: view-box; transform-origin: 256px 256px; animation: blOrbit 16s linear infinite; }
+@keyframes blOrbit { to { transform: rotate(360deg); } }
+
+.bl-glyph {
+    transform-box: view-box; transform-origin: 256px 256px;
+    animation: blBreath 5s ease-in-out infinite;
+}
+@keyframes blBreath {
+    0%, 100% { opacity: .9; filter: drop-shadow(0 0 8px rgba(116,116,255,.15)); }
+    50%      { opacity: 1;  filter: drop-shadow(0 0 22px rgba(116,116,255,.5)); }
+}
+
+/* по наведению: логотип приподнимается, орбита ускоряется, глиф дышит чаще */
+#brandLogo:hover { transform: scale(1.08); filter: drop-shadow(0 6px 18px rgba(79,79,239,.35)); }
+#brandLogo:hover .bl-orbit { animation-duration: 1.6s; }
+#brandLogo:hover .bl-glyph { animation-duration: 1.8s; }
+#brandLogo:active { transform: scale(1.0); }
+
+/* ---------- строки модулей ---------- */
+.module-row {
+    display: flex; align-items: center; gap: 12px;
+    background: #1e1e2f; border: 1px solid #3f3f5a; border-radius: 14px;
+    padding: 10px 14px; margin-bottom: 8px; color: #fff;
+    transition: border-color .18s ease;
+}
+.module-row:last-child { margin-bottom: 0; }
+.module-row:hover { border-color: #58587b; }
+.module-row.is-on { border-color: #3fe08a66; }
+
+.module-dot {
+    width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto;
+    background: #6b6b85; box-shadow: 0 0 0 3px rgba(107,107,133,.18);
+    transition: background-color .2s ease, box-shadow .2s ease;
+}
+.module-dot.is-on { background: #3fe08a; box-shadow: 0 0 0 3px rgba(63,224,138,.18); }
+.module-dot.is-busy { background: #ffd479; box-shadow: 0 0 0 3px rgba(255,212,121,.18); animation: waitingPulse 1.15s ease-in-out infinite; }
+.module-dot.is-error { background: #ff8a8a; box-shadow: 0 0 0 3px rgba(255,138,138,.18); }
+
+.module-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.module-name { font-size: 15px; font-weight: 600; }
+.module-status { font-size: 12px; }
+.module-toggle { flex: 0 0 auto; }
+
+/* ---------- настройки ---------- */
+.settings-subtitle { font-size: 12px; color: #9a9ab0; text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 2px; }
+.check-row { display: flex; align-items: center; gap: 10px; font-size: 15px; color: #d7d7ea; margin: 8px 0; cursor: pointer; }
+.check-row input { width: 18px; height: 18px; accent-color: #4f4fef; flex: 0 0 auto; }
+.btn-row .check-row { margin: 0; }
+
+/* ---------- кнопки ---------- */
+.btn-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.btn-row:last-child { margin-bottom: 0; }
+
+.mini-btn {
+    background: #3f3f5a; color: #fff; border: none; border-radius: 20px;
+    padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: background-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.mini-btn:hover { background: #4b4b6d; transform: translateY(-1px); box-shadow: 0 8px 16px -12px rgba(79,79,239,.9); }
+.mini-btn:disabled { opacity: .5; cursor: progress; transform: none; box-shadow: none; }
+.mini-btn.primary { background: #4f4fef; }
+.mini-btn.primary:hover { background: #6666ff; }
+
+.hint { font-size: 12px; color: #9a9ab0; }
+
+/* ---------- лог-консоль (на будущее) ---------- */
+.log-view {
+    flex: 1; min-height: 0; overflow-y: auto; background: #171724; border-radius: 14px;
+    border: 1px solid #313147; padding: 12px; font-family: Consolas, 'Courier New', monospace;
+    font-size: 12.5px; line-height: 1.55; color: #c9c9e8; white-space: pre-wrap; word-break: break-word;
+}
+.log-view .log-info { color: #a5b4ff; }
+.log-view .log-warn { color: #ffd479; }
+.log-view .log-error { color: #ff8a8a; }
+
+/* ---------- чипы модулей в контрол-баре ---------- */
+.module-chips { display: flex; gap: 6px; overflow: hidden; }
+.module-chip {
+    font-size: 11.5px; font-weight: 600; color: #9a9ab0; letter-spacing: .3px;
+    background: #1e1e2f; border: 1px solid #3f3f5a; border-radius: 999px;
+    padding: 4px 10px; white-space: nowrap;
+}
+.module-chip.is-on { color: #3fe08a; border-color: #3fe08a66; }
+.module-chip.is-busy { color: #ffd479; border-color: #ffd47966; }
+.module-chip.is-error { color: #ff8a8a; border-color: #ff8a8a66; }
+
+/* ---------- прогресс в контрол-баре ---------- */
+.progress-slot { justify-content: center; }
+.progress-wrap { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.progress-wrap.is-hidden { display: none; }
+.progress-track { height: 8px; border-radius: 999px; background: #2a2a3c; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
+.progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg,#4f4fef,#7474ff); transition: width .2s ease; }
+.status-text { font-size: 13px; color: #bdbddb; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-text.error { color: #ff8a8a; }
+#idleText.is-hidden { display: none; }

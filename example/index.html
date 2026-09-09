@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invis</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="app.css">
+    <link rel="icon" type="image/png" href="assets/img/icon.ico">
+</head>
+<body>
+    <div class="titlebar">
+        <div class="titlebar-drag">Invis</div>
+        <div class="titlebar-controls">
+            <button class="titlebar-btn minimize" title="Свернуть" data-cursor-text="—"><svg width="12" height="2" viewBox="0 0 12 2"><rect width="12" height="2" fill="currentColor"/></svg></button>
+            <button class="titlebar-btn devtools" title="DevTools" data-cursor-text="</>"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5L1 7l1 3.5"/><path d="M12 3.5L13 7l-1 3.5"/><path d="M8.8 1.5L5.2 12.5"/></svg></button>
+            <button class="titlebar-btn close" title="Закрыть" data-cursor-text="✕"><svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.5"><path d="M1 1l10 10M11 1L1 11"/></svg></button>
+        </div>
+    </div>
+
+    <!-- Контент: скроллится, нижний отступ = высота фиксированной control-bar -->
+    <main class="content">
+        <header class="brand-row">
+            <svg id="brandLogo" viewBox="0 0 512 512" aria-hidden="true">
+                <defs>
+                    <linearGradient id="blBg" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#232338"/><stop offset="1" stop-color="#15151f"/>
+                    </linearGradient>
+                    <linearGradient id="blAc" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#7474ff"/><stop offset="1" stop-color="#4f4fef"/>
+                    </linearGradient>
+                </defs>
+                <rect width="512" height="512" rx="96" fill="url(#blBg)"/>
+                <g class="bl-orbit">
+                    <circle cx="256" cy="256" r="238" fill="none" stroke="url(#blAc)" stroke-width="12"
+                            stroke-linecap="round" stroke-dasharray="130 1366" opacity=".55"/>
+                </g>
+                <!-- glyph:start --><g class="bl-glyph" fill="url(#blAc)"><path d="M256.52 352.06c-11.59-5.72-23.67-11.05-36.66-12.23-41.48-4.29-83.05-7.26-124.53-11.05-.09 6.44-.13 12.82-.13 19.26 11.31 6.2 18.57 17.57 18.66 30.62 1.28 24.82 15.34 48 46.27 50.69 22.48 1.95 49.37 6.12 67.99-10.27 15.46-12.63 13.78-35.65 28.4-48.93 14.61 13.28 12.94 36.3 28.4 48.93 18.61 16.39 45.51 12.22 67.99 10.27 30.93-2.69 44.99-25.87 46.27-50.69.09-13.05 7.34-24.42 18.66-30.62 0-6.44-.05-12.82-.14-19.26-41.48 3.79-83.05 6.76-124.52 11.05-12.99 1.18-25.08 6.51-36.66 12.23m-33.69 2.05c12.82 3.6 9.67 19.21 5.43 28.38-5.71 13.6-13.6 32.21-30.99 32.35-19.89-1.09-44.44 3.93-59.32-12.87-13.32-16.33-9.49-39.24-10.13-58.77 31.67 3.61 63.52 6.21 95.01 10.91m67.38 0c-12.82 3.6-9.67 19.21-5.43 28.38 5.7 13.6 13.6 32.21 30.98 32.35 19.9-1.09 44.45 3.93 59.32-12.87 13.33-16.33 9.49-39.24 10.13-58.77-31.66 3.61-63.51 6.21-95 10.91M163.75 91.18c49.37-10.86 100.71-11.49 150.85-5.93 15.93 2.19 32.27 4.11 47.19 10.54 4.29 2.24 10.26 4.25 10.22 10.13 5.06 33.68 8.21 67.63 13.23 101.35 20.03 7.21 42.53 14.51 55.12 32.9 7.21 9.72 3.2 23-4.97 30.66-16.02 15.83-38.19 22.72-59.27 28.98-47.1 12.59-96.29 15.51-144.88 13.68-43.21-1.96-87.02-7.93-127.17-24.77-13.37-6.39-28.02-14.28-34.36-28.43-4.89-9.72.82-20.67 7.98-27.47 13.65-13 31.81-19.39 49.19-25.64 4.7-32.58 8.12-65.35 12.59-97.97 0-12.55 14.93-14.79 24.28-18.03m37.65 26.38c52.7 6.89 106.86 9.81 159.25-.73.41-2.56 1.18-7.67 1.59-10.22-52.84 12.23-107.18 9.08-160.84 10.95M121 241.08c84 40.43 183.98 33.22 269.58 1.55-2.01-10.13-3.97-20.26-5.84-30.39-81.59 31.72-175.63 33.86-257.45 1.74-2 9.08-4.15 18.07-6.29 27.1" fill-rule="evenodd"/></g><!-- glyph:end -->
+            </svg>
+            <div class="brand-text">
+                <span class="brand-name">Invis</span>
+                <span class="brand-sub hint">Tor · DNSCrypt · I2P</span>
+            </div>
+        </header>
+
+        <section class="fields-section">
+            <h3>Модули</h3>
+
+            <div class="module-row" data-module="dnscrypt">
+                <span class="module-dot" id="dotDnscrypt"></span>
+                <div class="module-info">
+                    <span class="module-name">DNSCrypt</span>
+                    <span class="module-status hint" id="statusDnscrypt">остановлен</span>
+                </div>
+                <button class="mini-btn module-toggle" data-module="dnscrypt" data-cursor-text="⏻">Пуск</button>
+            </div>
+
+            <div class="module-row" data-module="tor">
+                <span class="module-dot" id="dotTor"></span>
+                <div class="module-info">
+                    <span class="module-name">Tor</span>
+                    <span class="module-status hint" id="statusTor">остановлен</span>
+                </div>
+                <button class="mini-btn module-toggle" data-module="tor" data-cursor-text="⏻">Пуск</button>
+            </div>
+
+            <div class="module-row" data-module="i2p">
+                <span class="module-dot" id="dotI2p"></span>
+                <div class="module-info">
+                    <span class="module-name">I2P</span>
+                    <span class="module-status hint" id="statusI2p">остановлен</span>
+                </div>
+                <button class="mini-btn module-toggle" data-module="i2p" data-cursor-text="⏻">Пуск</button>
+            </div>
+        </section>
+
+        <section class="fields-section">
+            <h3>Настройки</h3>
+
+            <label class="check-row">
+                <input type="checkbox" id="setLaunchWithWindows"> Запускать вместе с Windows
+            </label>
+            <label class="check-row">
+                <input type="checkbox" id="setCloseToTray"> При закрытии сворачивать в трей
+            </label>
+
+            <div class="settings-subtitle">Автозапуск модулей при старте Invis</div>
+            <div class="btn-row">
+                <label class="check-row"><input type="checkbox" id="setAutoDnscrypt"> DNSCrypt</label>
+                <label class="check-row"><input type="checkbox" id="setAutoTor"> Tor</label>
+                <label class="check-row"><input type="checkbox" id="setAutoI2p"> I2P</label>
+            </div>
+        </section>
+    </main>
+
+    <div class="control-bar">
+        <div class="control-bar__slot">
+            <div class="module-chips">
+                <span class="module-chip" id="chipDnscrypt">DNS ·—</span>
+                <span class="module-chip" id="chipTor">TOR ·—</span>
+                <span class="module-chip" id="chipI2p">I2P ·—</span>
+            </div>
+        </div>
+
+        <div class="control-bar__slot progress-slot">
+            <div class="progress-wrap is-hidden" id="progressWrap">
+                <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+                <div class="status-text" id="statusText">Готов к работе</div>
+            </div>
+            <div class="status-text" id="idleText">Готов к работе</div>
+        </div>
+
+        <div class="control-bar__slot control-bar__slot--actions">
+            <div class="action-switcher">
+                <button class="action-btn primary" id="startAllBtn" data-cursor-text="⚡">⚡ Запустить всё</button>
+                <button class="action-btn secondary" id="stopAllBtn" data-cursor-text="■">Остановить</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-preloader is-hidden" id="appPreloader">
+        <div class="preloader-core">
+            <img src="assets/img/logo.svg" alt="Logo">
+        </div>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/cursor-fx.js"></script>
+    <script src="js/electron-bridge.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

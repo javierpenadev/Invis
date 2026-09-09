@@ -1,0 +1,68 @@
+{
+  "name": "invis",
+  "version": "0.1.0",
+  "description": "Invis — Tor + DNSCrypt + I2P для Windows (Electron UI, tray-приложение)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "fetch-bins": "node tools/fetch-bins.js",
+    "make-icons": "node tools/make-icons.js",
+    "check": "node tools/dev-check.js",
+    "dist": "electron-builder --win",
+    "dist:nsis": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "license": "GPL-3.0",
+  "build": {
+    "appId": "local.invis",
+    "productName": "Invis",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "store.js",
+      "index.html",
+      "style.css",
+      "app.css",
+      "lib/**",
+      "js/**",
+      "assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
+    ],
+    "win": {
+      "icon": "assets/img/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3"
+  }
+}

@@ -1,0 +1,9 @@
+# тяжёлые артефакты — в git не попадают
+/apk/
+/apk_extracted/
+node_modules/
+release/
+/bin/
+/downloads/
+*.log
+example/tools/*.png
