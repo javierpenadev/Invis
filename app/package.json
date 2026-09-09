@@ -10,7 +10,8 @@
     "check": "node tools/dev-check.js",
     "dist": "electron-builder --win",
     "dist:nsis": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable"
+    "dist:portable": "electron-builder --win portable",
+    "check-settings": "node tools/check-settings.js"
   },
   "license": "GPL-3.0",
   "build": {

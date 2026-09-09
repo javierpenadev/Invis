@@ -13,6 +13,7 @@ ipcMain.handle('settings:get', () => ({
     closeToTray: true,
     systemDns: false,
     systemDnsAdapters: [],
+    autoUpdate: true,
     autostart: { dnscrypt: true, tor: true, i2p: false },
     dnscrypt: {
         autoMode: true, servers: [], requireDnssec: false, requireNolog: true,

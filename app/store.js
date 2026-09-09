@@ -11,6 +11,8 @@ const DEFAULTS = {
     launchWithWindows: false,          // запускать вместе с Windows
     closeToTray: true,                 // при закрытии сворачивать в трей
     systemDns: false,                  // перехват системного DNS (порт 53, нужен админ)
+    systemProxy: false,                // системный прокси -> Tor SOCKS5
+    autoUpdate: true,                  // автоматически проверять обновления
     systemDnsAdapters: [],             // имена адаптеров; пусто = все физические
     autostart: {                       // автозапуск модулей при старте Invis
         dnscrypt: true,
