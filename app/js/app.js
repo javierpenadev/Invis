@@ -40,7 +40,7 @@
         $(`#${m.dot}`)?.classList.toggle('is-error', state === 'error');
         const chip = $(`#${m.chip}`);
         if (chip) {
-            chip.textContent = `${m.label} · ${statusText || { off: '—', busy: '…', on: 'ok', error: 'ошибка' }[state]}`;
+            chip.textContent = m.label; // статус — только цветом
             chip.classList.toggle('is-on', state === 'on');
             chip.classList.toggle('is-busy', state === 'busy');
             chip.classList.toggle('is-error', state === 'error');
@@ -321,6 +321,10 @@
             UIBridge.send('querylog:clear');
             setTimeout(refresh, 200);
         });
+        $('#checkUpdatesBtn')?.addEventListener('click', () => {
+            InvisUI.setStatus('Проверяем обновления…');
+            UIBridge.send('update:check');
+        });
         $('#qlFilter')?.addEventListener('input', (e) => {
             filter = e.target.value.trim();
             clearTimeout(initQueryLog._t);
@@ -461,6 +465,7 @@
         UIBridge.on('diag:result', render);
         $('#i2pConsoleBtn')?.addEventListener('click', () => UIBridge.send('open:console-i2p'));
         $('#logsFolderBtn')?.addEventListener('click', () => UIBridge.send('open:logs'));
+        $('#ghBtn')?.addEventListener('click', () => UIBridge.send('open:github'));
     };
 
     /* ---------- авто-обновление ---------- */

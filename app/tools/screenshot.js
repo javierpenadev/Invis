@@ -22,9 +22,9 @@ ipcMain.handle('settings:get', () => ({
     },
 }));
 ipcMain.handle('modules:status', () => ({
-    dnscrypt: { state: 'on', status: 'работает' },
+    dnscrypt: { state: 'on', status: 'работает (:53)' },
     tor: { state: 'busy', status: '45%' },
-    i2p: { state: 'off', status: 'остановлен' },
+    i2p: { state: 'error', status: 'порт не открылся' },
 }));
 ipcMain.handle('app:info', () => ({
     version: '1.0.0',

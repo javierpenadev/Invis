@@ -183,3 +183,13 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
     padding: 6px 12px; box-shadow: 0 0 0 3px rgba(79,79,239,.10);
 }
 .update-badge .mini-btn { padding: 5px 12px; font-size: 12px; border-radius: 12px; }
+
+/* ---------- иконка в тайтлбаре и кнопка GitHub ---------- */
+.titlebar-icon { width: 18px; height: 18px; margin-right: 10px; border-radius: 5px; pointer-events: none; }
+.gh-btn {
+    margin-left: auto; width: 34px; height: 34px; padding: 0; flex: 0 0 auto;
+    background: #1e1e2f; border: 1px solid #3f3f5a; border-radius: 12px;
+    color: #bdbddb; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: color .18s ease, border-color .18s ease, transform .18s ease;
+}
+.gh-btn:hover { color: #fff; border-color: #4f4fef; transform: translateY(-1px); }

@@ -850,6 +850,7 @@ ipcMain.on('update:install', () => startUpdate());
 
 ipcMain.on('open:console-i2p', () => shell.openExternal('http://127.0.0.1:7070'));
 ipcMain.on('open:logs', () => shell.openPath(path.join(store.baseDir(), 'logs')));
+ipcMain.on('open:github', () => shell.openExternal('https://github.com/javierpenadev/Invis'));
 
 /* ---------- нативные диалоги (общие) ---------- */
 ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => {
