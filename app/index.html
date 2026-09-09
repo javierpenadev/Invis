@@ -19,7 +19,15 @@
         </div>
     </div>
 
-    <!-- Контент: скроллится, нижний отступ = высота фиксированной control-bar -->
+    <div class="tabbar">
+        <button class="tab-btn active" data-tab="modules" data-cursor-text="▣">Модули</button>
+        <button class="tab-btn" data-tab="resolvers" data-cursor-text="▦">Резольверы</button>
+        <button class="tab-btn" data-tab="settings" data-cursor-text="⚙">Настройки</button>
+        <button class="tab-btn" data-tab="querylog" data-cursor-text="≣">Лог DNS</button>
+        <button class="tab-btn" data-tab="about" data-cursor-text="ℹ">О программе</button>
+    </div>
+
+    <!-- Контент: активная вкладка; сверху тайтлбар + таббар, снизу control-bar -->
     <main class="content">
         <header class="brand-row">
             <svg id="brandLogo" viewBox="0 0 512 512" aria-hidden="true">
@@ -44,6 +52,7 @@
             </div>
         </header>
 
+        <div class="tab-page" data-page="modules">
         <section class="fields-section">
             <h3>Модули</h3>
 
@@ -74,7 +83,9 @@
                 <button class="mini-btn module-toggle" data-module="i2p" data-cursor-text="⏻">Пуск</button>
             </div>
         </section>
+        </div>
 
+        <div class="tab-page" data-page="resolvers">
         <section class="fields-section">
             <h3>DNS-резольверы</h3>
 
@@ -98,7 +109,9 @@
             <div class="settings-subtitle">Резервные (незашифрованные) резольверы</div>
             <input type="text" class="text-input" id="setBootstrap" placeholder="9.9.9.9:53, 8.8.8.8:53" spellcheck="false">
         </section>
+        </div>
 
+        <div class="tab-page" data-page="settings">
         <section class="fields-section">
             <h3>Настройки</h3>
 
@@ -130,12 +143,16 @@
                 <label class="check-row"><input type="checkbox" id="setAutoI2p"> I2P</label>
             </div>
         </section>
+        </div>
 
+        <div class="tab-page" data-page="about">
         <section class="fields-section">
             <h3>О программе</h3>
             <div class="about-text" id="aboutText">Загрузка…</div>
         </section>
+        </div>
 
+        <div class="tab-page" data-page="querylog">
         <section class="fields-section">
             <h3>Лог запросов DNS</h3>
             <label class="check-row">
@@ -148,6 +165,7 @@
             </div>
             <div class="log-view" id="qlView" style="height:180px">Лог пуст</div>
         </section>
+        </div>
     </main>
 
     <div class="control-bar">

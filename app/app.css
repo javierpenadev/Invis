@@ -2,7 +2,32 @@
 
 /* ---------- контент ---------- */
 .content { gap: 12px; padding: 14px; }
-.fields-section { padding: 14px 16px; flex: 0 0 auto; }
+.fields-section { padding: 14px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* ---------- вкладки ---------- */
+.tab-page { display: none; flex-direction: column; gap: 12px; min-height: 0; }
+.tab-page.active { display: flex; flex: 1; min-height: 0; }
+
+/* утилиты */
+.is-hidden { display: none !important; }
+.grow { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- кастомные чекбоксы в стиле проекта ---------- */
+input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 19px; height: 19px; border-radius: 6px;
+    border: 1px solid #3f3f5a; background: #1e1e2f;
+    cursor: pointer; position: relative; flex: 0 0 auto; margin: 0;
+    transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+input[type="checkbox"]:hover { border-color: #58587b; }
+input[type="checkbox"]:focus-visible { outline: none; border-color: #4f4fef; box-shadow: 0 0 0 3px rgba(79,79,239,.16); }
+input[type="checkbox"]:checked { background: linear-gradient(135deg, #4f4fef, #6666ff); border-color: #4f4fef; }
+input[type="checkbox"]:checked::after {
+    content: ''; position: absolute; left: 27%; top: 10%;
+    width: 25%; height: 55%; border: solid #fff; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
 .fields-section h3 { margin: 0 0 12px 0; font-size: 14px; }
 
 /* ---------- бренд-строка с анимированным логотипом ---------- */
@@ -117,3 +142,16 @@
 .about-text { font-size: 13px; line-height: 1.7; color: #bdbddb; }
 .about-text b { color: #fff; }
 .about-text code { font-size: 11.5px; }
+
+/* ---------- список резольверов ---------- */
+.simple-list {
+    max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+    background: #1e1e2f; border-radius: 12px; padding: 8px; border: 1px solid #3f3f5a; margin-top: 8px;
+}
+.resolver-row {
+    display: flex; align-items: center; gap: 10px; font-size: 14px; color: #d7d7ea;
+    padding: 7px 8px; border-radius: 8px; cursor: pointer; min-width: 0;
+}
+.resolver-row:hover { background: #2a2a3c; }
+.resolver-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resolver-props { flex: 0 0 auto; font-size: 11px; letter-spacing: .2px; }

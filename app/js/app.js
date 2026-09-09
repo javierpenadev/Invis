@@ -331,9 +331,24 @@
     };
 
     /* ---------- инициализация ---------- */
+    /* ---------- вкладки ---------- */
+    const initTabs = () => {
+        const btns = document.querySelectorAll('.tab-btn');
+        const activate = (id) => {
+            document.querySelectorAll('.tab-page').forEach((p) => p.classList.toggle('active', p.dataset.page === id));
+            btns.forEach((b) => b.classList.toggle('active', b.dataset.tab === id));
+            try { localStorage.setItem('invis-tab', id); } catch (e) { /* приватный режим */ }
+        };
+        btns.forEach((b) => b.addEventListener('click', () => activate(b.dataset.tab)));
+        let saved = 'modules';
+        try { saved = localStorage.getItem('invis-tab') || 'modules'; } catch (e) { /* ignore */ }
+        activate(document.querySelector(`.tab-page[data-page="${saved}"]`) ? saved : 'modules');
+    };
+
     const init = () => {
         CursorFx.init();
         initTitlebar();
+        initTabs();
         initModules();
         initSettings();
         initAbout();
