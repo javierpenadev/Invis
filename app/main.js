@@ -4,10 +4,13 @@
  * Точки расширения помечены «Точка расширения:» (демоны, IPC-каналы и т.п.).
  */
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
+const { spawn, execFileSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 const { buildAll: buildConfigs, PORTS } = require('./lib/configs');
 const { DaemonSupervisor } = require('./lib/daemons');
+const netmode = require('./lib/netmode');
 
 let win = null;
 let tray = null;
@@ -17,8 +20,12 @@ let quitting = false;          // true — выходим по-настояще�
 let balloonShown = false;      // подсказка «работает в трее» — один раз за сессию
 let settings = store.load();
 let supervisor = null;
+let configDirGlobal = null;
+let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
 
 const TITLE = 'Invis';
+const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
+const dnsBackupFile = () => path.join(store.baseDir(), 'dns-backup.json');
 
 /* ---------- единственный экземпляр ---------- */
 if (!app.requestSingleInstanceLock()) {
@@ -32,21 +39,43 @@ function onReady() {
     /* Применяем автозапуск с Windows (синхронизирует реестр с настройкой) */
     applyLaunchWithWindows();
 
-    /* Конфиги и супервизор демонов (bin/ — npm run fetch-bins, см. README) */
     const base = store.baseDir();
-    const configDir = path.join(base, 'configs');
+    configDirGlobal = path.join(base, 'configs');
+
+    /* Восстановление системного DNS, если прошлый сеанс завершился некорректно */
+    recoverSystemDnsIfNeeded();
+
+    /* Перехват системного DNS, включённый в настройках */
+    if (settings.systemDns) {
+        if (netmode.isElevated()) {
+            const r = applySystemDns();
+            if (!r.ok) {
+                settings.systemDns = false;
+                store.save(settings);
+                console.warn('[Invis] Системный DNS не включён:', r.error);
+            }
+        } else {
+            settings.systemDns = false;
+            store.save(settings);
+            console.warn('[Invis] systemDns включён, но запуск выполнен без прав администратора — режим отключён');
+        }
+    }
+
+    /* Конфиги и супервизор демонов (bin/ — npm run fetch-bins, см. README) */
     buildConfigs({
-        configDir,
+        configDir: configDirGlobal,
         torDataDir: path.join(base, 'data', 'tor'),
         i2pDataDir: path.join(base, 'data', 'i2pd'),
         geoipDir: path.join(binDir(), 'tor', 'data'),
         i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
+        dnscryptListen: dnsApplied ? 53 : PORTS.dnscrypt,
     });
     supervisor = new DaemonSupervisor({
         binDir: binDir(),
-        configDir,
+        configDir: configDirGlobal,
         logDir: path.join(base, 'logs'),
         i2pdDataDir: path.join(base, 'data', 'i2pd'),
+        dnscryptPort: dnsApplied ? 53 : PORTS.dnscrypt,
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
@@ -67,6 +96,139 @@ function onReady() {
 /* Каталог бинарников: в сборке — resources/bin, в dev — <проект>/bin */
 function binDir() {
     return app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(__dirname, 'bin');
+}
+
+/* ---------- системный DNS (перехват на 127.0.0.1, порт 53 у dnscrypt) ---------- */
+function netmodeLog(msg) {
+    try {
+        fs.mkdirSync(path.join(store.baseDir(), 'logs'), { recursive: true });
+        fs.appendFileSync(path.join(store.baseDir(), 'logs', 'netmode.log'),
+            `${new Date().toISOString()} ${msg}\n`);
+    } catch (e) { /* лог не критичен */ }
+}
+
+function applySystemDns() {
+    if (dnsApplied) return { ok: true };
+    const owner = netmode.port53Owner();
+    if (owner) {
+        return {
+            ok: false,
+            error: `Порт 53 уже занят процессом «${owner}» (вероятно, другой DNS-сервис). `
+                 + 'Остановите его или настройте на использование Invis, затем повторите.',
+        };
+    }
+    const adapters = netmode.getUpPhysicalAdapters();
+    if (!adapters.length) return { ok: false, error: 'Не найдено активных сетевых адаптеров.' };
+    const backup = adapters.map((a) => ({ alias: a, addresses: netmode.getDnsServers(a) }));
+    netmode.writeBackup(dnsBackupFile(), backup);
+    netmodeLog(`Перехват DNS включён. Адаптеры: [${adapters.join(', ')}]. Сохранено: `
+        + JSON.stringify(backup));
+    for (const a of adapters) netmode.setDnsLoopback(a);
+    dnsApplied = true;
+    return { ok: true };
+}
+
+function restoreSystemDns() {
+    const backup = netmode.readBackup(dnsBackupFile());
+    if (!backup) { dnsApplied = false; return; }
+    for (const { alias, addresses } of backup) {
+        try {
+            if (addresses && addresses.length) netmode.setDnsList(alias, addresses);
+            else netmode.resetDns(alias);
+        } catch (e) {
+            netmodeLog(`ОШИБКА восстановления DNS на «${alias}»: ${e.message}`);
+        }
+    }
+    netmode.removeBackup(dnsBackupFile());
+    netmodeLog('Системный DNS восстановлен');
+    dnsApplied = false;
+}
+
+/* После сбоя: вернуть прежние настройки DNS */
+function recoverSystemDnsIfNeeded() {
+    if (!netmode.readBackup(dnsBackupFile())) return;
+    netmodeLog('Обнаружен невосстановленный dns-backup при старте');
+    if (netmode.isElevated()) {
+        restoreSystemDns();
+        return;
+    }
+    const { response } = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Invis',
+        message: 'Invis не завершил работу корректно: системный DNS остался направлен на 127.0.0.1.',
+        detail: 'Восстановить прежние настройки DNS сейчас? Потребуются права администратора.',
+        buttons: ['Восстановить DNS', 'Позже'],
+        defaultId: 0,
+        cancelId: 1,
+    });
+    if (response === 0) restoreElevatedOneShot();
+}
+
+/* Разовое восстановление DNS через отдельный elevated-процесс */
+function restoreElevatedOneShot() {
+    const backup = netmode.readBackup(dnsBackupFile());
+    if (!backup) return;
+    const lines = backup.map(({ alias, addresses }) => addresses && addresses.length
+        ? `Set-DnsClientServerAddress -InterfaceAlias '${alias.replace(/'/g, "''")}' -ServerAddresses ${addresses.map((a) => `'${a}'`).join(',')}`
+        : `Set-DnsClientServerAddress -InterfaceAlias '${alias.replace(/'/g, "''")}' -ResetServerAddresses`);
+    const ps1 = path.join(app.getPath('temp'), 'invis-dns-restore.ps1');
+    fs.writeFileSync(ps1, lines.join('\r\n'), 'utf8');
+    try {
+        execFileSync('powershell',
+            ['-NoProfile', '-Command',
+             `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${ps1.replace(/'/g, "''")}'`],
+            { windowsHide: true, timeout: 120000, stdio: 'ignore' });
+        netmode.removeBackup(dnsBackupFile());
+        netmodeLog('DNS восстановлен разовым elevated-скриптом');
+    } catch (e) {
+        netmodeLog('Разовое восстановление отменено (UAC/таймаут)');
+    }
+}
+
+/* Перезапуск приложения с правами администратора (UAC) */
+function relaunchElevated() {
+    const exe = process.execPath.replace(/'/g, "''");
+    const args = app.isPackaged ? [] : [__dirname.replace(/'/g, "''")];
+    const ps = `Start-Process -FilePath '${exe}' ${args.length ? `-ArgumentList ${args.map((a) => `'${a}'`).join(',')}` : ''} -Verb RunAs`;
+    spawn('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
+    quitting = true;
+    setTimeout(() => app.quit(), 300);
+}
+
+/* Перегенерация конфигов (порт dnscrypt зависит от режима DNS) + мягкий рестарт */
+function rebuildConfigsAndRestartDnscrypt() {
+    const listen = dnsApplied ? 53 : PORTS.dnscrypt;
+    const base = store.baseDir();
+    buildConfigs({
+        configDir: configDirGlobal,
+        torDataDir: path.join(base, 'data', 'tor'),
+        i2pDataDir: path.join(base, 'data', 'i2pd'),
+        geoipDir: path.join(binDir(), 'tor', 'data'),
+        i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
+        dnscryptListen: listen,
+    });
+    supervisor?.setDnscryptPort(listen);
+    if (supervisor?.isRunning('dnscrypt')) {
+        supervisor.stop('dnscrypt').then(() => supervisor.start('dnscrypt'));
+    }
+}
+
+/* Нельзя загасить dnscrypt, пока он обслуживает системный DNS */
+function guardDnscryptStop(name) {
+    if (name === 'dnscrypt' && dnsApplied && supervisor?.isRunning('dnscrypt')) {
+        sendToRenderer('modules:event', {
+            text: 'DNSCrypt обслуживает системный DNS — сначала отключите «Перехват системного DNS».',
+        });
+        return true;
+    }
+    return false;
+}
+
+function stopAllModules() {
+    if (!supervisor) return;
+    const names = supervisor.list.filter((n) => !(dnsApplied && n === 'dnscrypt'));
+    if (dnsApplied) sendToRenderer('modules:event', { text: 'DNSCrypt оставлен активным: обслуживает системный DNS' });
+    names.forEach((n) => supervisor.stop(n));
 }
 
 /* ---------- окно ---------- */
@@ -176,7 +338,7 @@ function trayMenu() {
         { type: 'separator' },
         /* Точка расширения: управление модулями через супервизор */
         { label: 'Запустить всё', click: () => supervisor?.startEnabled(settings.autostart) },
-        { label: 'Остановить всё', click: () => supervisor?.stopAll() },
+        { label: 'Остановить всё', click: () => stopAllModules() },
         { type: 'separator' },
         {
             label: 'Запускать с Windows',
@@ -201,6 +363,47 @@ function applyLaunchWithWindows() {
 
 /* ---------- изменения настроек (общая точка: IPC и меню трея) ---------- */
 function setSetting(patch) {
+    /* Особый случай: перехват системного DNS */
+    if (patch.systemDns !== undefined && patch.systemDns !== Boolean(settings.systemDns)) {
+        const want = patch.systemDns;
+        if (want && !netmode.isElevated()) {
+            const { response } = dialog.showMessageBoxSync(win, {
+                type: 'question',
+                title: 'Invis',
+                message: 'Перехват системного DNS требует прав администратора.',
+                detail: 'Invis перезапустится от имени администратора и направит DNS системы '
+                      + 'на локальный защищённый резолвер. При выходе настройки DNS будут восстановлены.',
+                buttons: ['Перезапустить от администратора', 'Отмена'],
+                defaultId: 0,
+                cancelId: 1,
+            });
+            if (response === 0) {
+                settings = store.deepMerge(store.load(), { systemDns: true });
+                store.save(settings);
+                relaunchElevated();
+            }
+            sendToRenderer('settings:changed', settings);
+            return settings;
+        }
+        if (want) {
+            const r = applySystemDns();
+            if (!r.ok) {
+                dialog.showMessageBox(win, {
+                    type: 'error',
+                    title: 'Invis',
+                    message: 'Не удалось включить системный DNS',
+                    detail: r.error,
+                });
+                patch = { ...patch, systemDns: false };
+            } else {
+                rebuildConfigsAndRestartDnscrypt();
+            }
+        } else if (dnsApplied) {
+            restoreSystemDns();
+            rebuildConfigsAndRestartDnscrypt();
+        }
+    }
+
     /* Глубокий merge в дефолты — неизвестные ключи отбрасываются, вложенный
      * autostart не теряет соседние флаги при частичном патче */
     settings = store.deepMerge(store.load(), patch);
@@ -229,17 +432,31 @@ ipcMain.on('app:quit', () => { quitting = true; app.quit(); });
 /* ---------- IPC: настройки ---------- */
 ipcMain.handle('settings:get', () => settings);
 ipcMain.handle('settings:set', (_e, patch) => setSetting(patch || {}));
+ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    daemons: DAEMON_VERSIONS,
+    systemDnsActive: dnsApplied,
+}));
 
 /* ---------- IPC: модули (реальный супервизор демонов) ---------- */
 ipcMain.handle('modules:status', () => supervisor?.status() || {});
 ipcMain.on('modules:start-all', () => supervisor?.startEnabled(settings.autostart));
-ipcMain.on('modules:stop-all', () => supervisor?.stopAll());
+ipcMain.on('modules:stop-all', () => stopAllModules());
 ipcMain.on('modules:toggle', (_e, name) => {
     if (!supervisor || !supervisor.specs[name]) return;
-    supervisor.isRunning(name) ? supervisor.stop(name) : supervisor.start(name);
+    if (supervisor.isRunning(name)) {
+        if (guardDnscryptStop(name)) return;
+        supervisor.stop(name);
+    } else {
+        supervisor.start(name);
+    }
 });
 ipcMain.on('modules:start', (_e, name) => supervisor?.start(name));
-ipcMain.on('modules:stop', (_e, name) => supervisor?.stop(name));
+ipcMain.on('modules:stop', (_e, name) => {
+    if (guardDnscryptStop(name)) return;
+    supervisor?.stop(name);
+});
 
 /* ---------- нативные диалоги (общие) ---------- */
 ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => {
@@ -253,8 +470,9 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => 
 
 app.on('before-quit', () => {
     quitting = true;
-    /* Гасим демоны, чтобы не оставлять «зомби»-процессы */
+    /* Гасим демоны и возвращаем системный DNS, чтобы не оставлять поломок */
     supervisor?.stopAll();
+    if (dnsApplied) restoreSystemDns();
 });
 
 app.on('window-all-closed', () => {

@@ -42,7 +42,7 @@ class DaemonSupervisor {
      *   i2pdDataDir — каталог данных i2pd (внутри сертификаты)
      *   onState     — callback({name, state, status})
      */
-    constructor({ binDir, configDir, logDir, i2pdDataDir, onState }) {
+    constructor({ binDir, configDir, logDir, i2pdDataDir, dnscryptPort = PORTS.dnscrypt, onState }) {
         this.onState = onState || (() => {});
         this.logDir = logDir;
         /* i2pd: datadir/certsdir только через CLI — ключ datadir в ini игнорируется.
@@ -60,7 +60,8 @@ class DaemonSupervisor {
                 exe: path.join(binDir, 'dnscrypt', 'win64', 'dnscrypt-proxy.exe'),
                 args: ['-config', path.join(configDir, 'dnscrypt-proxy.toml')],
                 cwd: configDir,
-                probePort: PORTS.dnscrypt,
+                probePort: dnscryptPort,
+                portSuffix: ` (:${dnscryptPort})`,
             },
             i2p: {
                 label: 'I2P',
@@ -155,11 +156,17 @@ class DaemonSupervisor {
         } else {
             waitReady(spec.probePort).then((ok) => {
                 if (this.state[name].proc === proc && this.state[name].state === 'busy') {
-                    if (ok) this._set(name, 'on', 'работает');
+                    if (ok) this._set(name, 'on', 'работает' + (spec.portSuffix || ''));
                     else this._set(name, 'error', 'порт не открылся за 30 с');
                 }
             });
         }
+    }
+
+    /* Смена listen-порта dnscrypt (переключение системного DNS) */
+    setDnscryptPort(port) {
+        this.specs.dnscrypt.probePort = port;
+        this.specs.dnscrypt.portSuffix = ` (:${port})`;
     }
 
     _handleLine(name, line) {
@@ -176,7 +183,7 @@ class DaemonSupervisor {
         } else if (name === 'dnscrypt') {
             if (/Now listening to/i.test(line) && st.state === 'busy') {
                 probePort(spec.probePort, 1500).then((ok) => {
-                    if (ok && st.state === 'busy') this._set(name, 'on', 'работает');
+                    if (ok && st.state === 'busy') this._set(name, 'on', 'работает' + (spec.portSuffix || ''));
                 });
             }
         }

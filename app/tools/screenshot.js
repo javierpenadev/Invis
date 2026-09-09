@@ -18,6 +18,12 @@ ipcMain.handle('modules:status', () => ({
     tor: { state: 'busy', status: '45%' },
     i2p: { state: 'off', status: 'остановлен' },
 }));
+ipcMain.handle('app:info', () => ({
+    version: '1.0.0',
+    electron: process.versions.electron,
+    daemons: { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' },
+    systemDnsActive: false,
+}));
 
 app.whenReady().then(async () => {
     const win = new BrowserWindow({

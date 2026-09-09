@@ -112,3 +112,8 @@
 .status-text { font-size: 13px; color: #bdbddb; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-text.error { color: #ff8a8a; }
 #idleText.is-hidden { display: none; }
+
+/* ---------- о программе ---------- */
+.about-text { font-size: 13px; line-height: 1.7; color: #bdbddb; }
+.about-text b { color: #fff; }
+.about-text code { font-size: 11.5px; }

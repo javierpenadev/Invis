@@ -71,6 +71,7 @@
     const SETTINGS_IDS = {
         launchWithWindows: 'setLaunchWithWindows',
         closeToTray: 'setCloseToTray',
+        systemDns: 'setSystemDns',
         'autostart.dnscrypt': 'setAutoDnscrypt',
         'autostart.tor': 'setAutoTor',
         'autostart.i2p': 'setAutoI2p',
@@ -144,12 +145,31 @@
         }
     };
 
+    /* ---------- «О программе» ---------- */
+    const initAbout = async () => {
+        const el = $('#aboutText');
+        if (!el) return;
+        try {
+            const info = await UIBridge.invoke('app:info');
+            if (!info) { el.textContent = 'Invis'; return; }
+            el.innerHTML = `Invis <b>v${StringUtils.escape(info.version)}</b> · Electron ${StringUtils.escape(info.electron)}<br>`
+                + `Демоны: Tor ${StringUtils.escape(info.daemons.tor)} (BSD-3) · `
+                + `dnscrypt-proxy ${StringUtils.escape(info.daemons.dnscrypt)} (ISC) · `
+                + `i2pd ${StringUtils.escape(info.daemons.i2pd)} (BSD-3)<br>`
+                + `Лицензия Invis: <b>GPL-3.0</b>. Тексты лицензий сторонних компонентов — `
+                + `<code>THIRD-PARTY-LICENSES.md</code> в каталоге приложения.`;
+        } catch (e) {
+            el.textContent = 'Invis';
+        }
+    };
+
     /* ---------- инициализация ---------- */
     const init = () => {
         CursorFx.init();
         initTitlebar();
         initModules();
         initSettings();
+        initAbout();
         setStatus('Готов к работе');
         console.log('Invis UI запущен');
     };

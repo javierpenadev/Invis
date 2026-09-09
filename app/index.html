@@ -84,6 +84,10 @@
             <label class="check-row">
                 <input type="checkbox" id="setCloseToTray"> При закрытии сворачивать в трей
             </label>
+            <label class="check-row">
+                <input type="checkbox" id="setSystemDns"> Перехватывать системный DNS
+                <span class="hint">(порт 53, нужны права администратора)</span>
+            </label>
 
             <div class="settings-subtitle">Автозапуск модулей при старте Invis</div>
             <div class="btn-row">
@@ -91,6 +95,11 @@
                 <label class="check-row"><input type="checkbox" id="setAutoTor"> Tor</label>
                 <label class="check-row"><input type="checkbox" id="setAutoI2p"> I2P</label>
             </div>
+        </section>
+
+        <section class="fields-section">
+            <h3>О программе</h3>
+            <div class="about-text" id="aboutText">Загрузка…</div>
         </section>
     </main>
 

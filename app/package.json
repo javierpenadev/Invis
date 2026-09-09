@@ -1,7 +1,7 @@
 {
   "name": "invis",
-  "version": "0.1.1",
-  "description": "Invis — Tor + DNSCrypt + I2P для Windows (Electron UI, tray-приложение)",
+  "version": "1.0.0",
+  "description": "Invis — Tor + DNSCrypt + I2P для Windows (Electron UI, tray-приложение, системный DNS)",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -27,7 +27,8 @@
       "app.css",
       "lib/**",
       "js/**",
-      "assets/**"
+      "assets/**",
+      "THIRD-PARTY-LICENSES.md"
     ],
     "extraResources": [
       {
