@@ -72,6 +72,7 @@
         launchWithWindows: 'setLaunchWithWindows',
         closeToTray: 'setCloseToTray',
         systemDns: 'setSystemDns',
+        autoUpdate: 'setAutoUpdate',
         'dnscrypt.autoMode': 'setDnscryptAuto',
         'dnscrypt.requireDnssec': 'fltRequireDnssec',
         'dnscrypt.requireNolog': 'fltRequireNolog',
@@ -111,6 +112,7 @@
                 if (parts.length === 1) patch[parts[0]] = e.target.checked;
                 else patch[parts[0]] = { [parts[1]]: e.target.checked };
                 UIBridge.invoke('settings:set', patch);
+                if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });
         }
 
@@ -443,6 +445,60 @@
         $('#logsFolderBtn')?.addEventListener('click', () => UIBridge.send('open:logs'));
     };
 
+    /* ---------- авто-обновление ---------- */
+    const initUpdate = async () => {
+        const badge = $('#updateBadge'), text = $('#updateText'), btn = $('#updateBtn');
+        const verEl = $('#brandVersion');
+        const cur = { available: false, version: null, downloading: false, percent: 0, readyToInstall: false };
+
+        const render = () => {
+            if (cur.downloading) {
+                badge?.classList.remove('is-hidden');
+                if (text) text.textContent = 'Скачивание…';
+                if (btn) { btn.textContent = `${cur.percent}%`; btn.disabled = true; }
+                return;
+            }
+            if (cur.available && cur.version) {
+                badge?.classList.remove('is-hidden');
+                if (text) text.textContent = `Доступна v${cur.version}`;
+                if (btn) {
+                    btn.disabled = Boolean(cur.readyToInstall);
+                    btn.textContent = cur.readyToInstall ? 'Установка…' : 'Обновить';
+                }
+                return;
+            }
+            badge?.classList.add('is-hidden');
+        };
+
+        const info = await UIBridge.invoke('app:info');
+        if (verEl && info) verEl.textContent = `v${info.version}`;
+
+        const st0 = await UIBridge.invoke('update:state');
+        if (st0) {
+            cur.available = st0.available; cur.version = st0.version;
+            render();
+        }
+
+        UIBridge.on('update:available', (d) => {
+            cur.available = true; cur.version = d.version;
+            render();
+            TemplateUI.setStatus('Доступна новая версия Invis — можно обновить');
+        });
+        UIBridge.on('update:progress', (d) => {
+            if (d.error) {
+                TemplateUI.setStatus(`Ошибка обновления: ${d.error}`, { error: true });
+                cur.downloading = false; render();
+                return;
+            }
+            cur.downloading = true; cur.percent = d.percent; render();
+        });
+        UIBridge.on('update:downloaded', () => {
+            cur.downloading = false; cur.readyToInstall = true; render();
+            TemplateUI.setStatus('Обновление скачано — приложение перезапустится и установит его');
+        });
+        btn?.addEventListener('click', () => UIBridge.send('update:install'));
+    };
+
     const init = () => {
         CursorFx.init();
         initTitlebar();
@@ -453,6 +509,7 @@
         initResolvers();
         initAdapters();
         initQueryLog();
+        initUpdate();
         initTor();
         initDiag();
         setStatus('Готов к работе');

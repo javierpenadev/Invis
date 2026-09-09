@@ -16,6 +16,7 @@ const torctl = require('./lib/torctl');
 const diag = require('./lib/diag');
 const blocklists = require('./lib/blocklists');
 const bridges = require('./lib/bridges');
+const updater = require('./lib/updater');
 
 let win = null;
 let tray = null;
@@ -28,6 +29,7 @@ let supervisor = null;
 let configDirGlobal = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
 let newIpTimer = null;         // авто-смена IP Tor
+let cleanupDone = false;       // очистка перед выходом выполнена
 
 const TITLE = 'Invis';
 const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
@@ -95,6 +97,16 @@ function onReady() {
     initTrayIcons();
     createTray();
     scheduleNewIp();
+
+    /* Авто-обновление: первая проверка через 20 с, далее раз в 4 часа */
+    if (!process.env.INVIS_NO_UPDATE) {
+        setTimeout(() => checkForUpdates(), 20000);
+        setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
+    }
+    /* мусор от прошлых обновлений portable-версии */
+    if (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR) {
+        try { fs.unlinkSync(path.join(path.dirname(process.execPath), 'Invis.exe.old')); } catch (e) { /* нет файла */ }
+    }
 
     /* Автозапуск модулей согласно настройкам */
     if (!process.env.INVIS_NO_AUTOSTART) {
@@ -458,6 +470,7 @@ function setSetting(patch) {
     settings = store.deepMerge(store.load(), patch);
     store.save(settings);
     if (patch.launchWithWindows !== undefined) applyLaunchWithWindows();
+    if (patch.autoUpdate) checkForUpdates(true);
 
     /* Изменились параметры dnscrypt — перегенерировать toml и мягко перезапустить */
     if (patch.dnscrypt !== undefined) {
@@ -596,6 +609,98 @@ ipcMain.handle('adapters:list', () => {
     catch (e) { return { ok: false, error: e.message }; }
 });
 
+/* ---------- авто-обновление (GitHub Releases) ---------- */
+const REPO_RELEASES = `https://github.com/${updater.REPO}/releases/latest`;
+const updateState = {
+    available: false, version: null,
+    downloading: false, percent: 0,
+    setupUrl: null, portableUrl: null,
+};
+
+async function checkForUpdates(manual = false) {
+    if (!settings.autoUpdate && !manual) return;
+    try {
+        const rel = await updater.latestRelease();
+        if (updater.isNewer(rel.version, app.getVersion())) {
+            updateState.available = true;
+            updateState.version = rel.version;
+            updateState.setupUrl = rel.setupUrl;
+            updateState.portableUrl = rel.portableUrl;
+            sendToRenderer('update:available', { version: rel.version });
+        } else if (manual) {
+            sendToRenderer('modules:event', { text: `У вас последняя версия (v${app.getVersion()})` });
+        }
+    } catch (e) {
+        if (manual) sendToRenderer('modules:event', { text: `Проверка обновлений не удалась: ${e.message}` });
+    }
+}
+
+/* Установка: скачиваем файл релиза и перезапускаемся через cmd-сценарий.
+ * NSIS: ждём выхода Invis -> тихая установка (/S) -> автозапуск.
+ * Portable: переименовываем запущенный exe (Windows это разрешает), подкладываем новый. */
+async function startUpdate() {
+    if (!updateState.available || updateState.downloading) return;
+    if (!app.isPackaged) {
+        shell.openExternal(REPO_RELEASES);
+        return;
+    }
+    const portable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
+    const assetUrl = portable ? updateState.portableUrl : updateState.setupUrl;
+    if (!assetUrl) { sendToRenderer('modules:event', { text: 'В релизе нет подходящего файла' }); return; }
+
+    updateState.downloading = true;
+    updateState.percent = 0;
+    sendToRenderer('update:progress', { percent: 0 });
+
+    const dest = path.join(app.getPath('temp'), path.basename(assetUrl));
+    try {
+        await updater.download(assetUrl, dest, {
+            onProgress: (p) => {
+                updateState.percent = p;
+                sendToRenderer('update:progress', { percent: p });
+            },
+        });
+    } catch (e) {
+        updateState.downloading = false;
+        sendToRenderer('update:progress', { error: e.message });
+        return;
+    }
+    updateState.downloading = false;
+    sendToRenderer('update:downloaded', {});
+
+    const exe = process.execPath;
+    const dir = path.dirname(exe);
+    const q = (s) => `"${s}"`;
+    let cmdLines;
+    if (portable) {
+        cmdLines = [
+            '@echo off',
+            'timeout /t 3 /nobreak >nul',
+            `if exist ${q(path.join(dir, 'Invis.exe.old'))} del /q ${q(path.join(dir, 'Invis.exe.old'))}`,
+            `ren ${q(exe)} "Invis.exe.old"`,
+            `move /y ${q(dest)} ${q(exe)}`,
+            `start "" ${q(exe)}`,
+            'exit',
+        ];
+    } else {
+        cmdLines = [
+            '@echo off',
+            ':waitclose',
+            'timeout /t 1 /nobreak >nul',
+            `tasklist /fi "imagename eq ${path.basename(exe)}" | find /i "${path.basename(exe)}" >nul && goto waitclose`,
+            `start /wait "" ${q(dest)} /S`,
+            `start "" ${q(exe)}`,
+            'exit',
+        ];
+    }
+    const cmdPath = path.join(app.getPath('temp'), 'invis-update.cmd');
+    fs.writeFileSync(cmdPath, cmdLines.join(String.fromCharCode(13, 10)), 'utf8');
+    spawn('cmd', ['/c', cmdPath], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+    quitting = true;
+    netmodeLog(`Обновление на v${updateState.version}: файл скачан, приложение перезапустится через установку`);
+    setTimeout(() => app.quit(), 300);
+}
+
 /* ---------- IPC: диагностика, Tor NEWNYM, мосты, ярлыки ---------- */
 const { shell } = require('electron');
 const ipinfo = require('./lib/ipinfo');
@@ -630,6 +735,10 @@ ipcMain.on('tor:newip', async () => {
 
 ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(transport || 'obfs4'));
 
+ipcMain.handle('update:state', () => ({ ...updateState, currentVersion: app.getVersion(), autoUpdate: Boolean(settings.autoUpdate), installSupported: app.isPackaged }));
+ipcMain.on('update:check', () => checkForUpdates(true));
+ipcMain.on('update:install', () => startUpdate());
+
 ipcMain.on('open:console-i2p', () => shell.openExternal('http://127.0.0.1:7070'));
 ipcMain.on('open:logs', () => shell.openPath(path.join(store.baseDir(), 'logs')));
 
@@ -643,7 +752,6 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => 
     return res.canceled ? null : res.filePath;
 });
 
-let cleanupDone = false;
 app.on('before-quit', (e) => {
     quitting = true;
     if (cleanupDone) return;

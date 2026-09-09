@@ -35,6 +35,10 @@ ipcMain.handle('app:info', () => ({
 ipcMain.handle('resolvers:list', () => ({ ok: false, error: 'демо' }));
 ipcMain.handle('adapters:list', () => ({ ok: true, list: ['Беспроводная сеть'] }));
 ipcMain.handle('querylog:get', () => ({ lines: [], total: 0 }));
+ipcMain.handle('update:state', () => ({
+    available: true, version: '1.3.1', downloading: false, percent: 0,
+    readyToInstall: false, currentVersion: '1.3.0', autoUpdate: true, installSupported: true,
+}));
 
 app.whenReady().then(async () => {
     const win = new BrowserWindow({
