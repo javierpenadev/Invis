@@ -6,4 +6,4 @@ release/
 /bin/
 /downloads/
 *.log
-example/tools/*.png
+app/tools/*.png

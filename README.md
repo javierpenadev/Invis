@@ -12,10 +12,10 @@
 - [ТЗ на порт под Windows](ТЗ-порт-Windows.md) — разбор Android-оригинала, целевая архитектура, режимы сети
 - [Тасклист](тасклист-порт-Windows.md) — фазы, задачи с DoD и оценками
 
-## Приложение (`example/`)
+## Приложение (`app/`)
 
 ```bash
-cd example
+cd app
 npm install
 npm run fetch-bins   # один раз: скачать демонов в bin\ (~30 МБ)
 npm start
@@ -24,7 +24,7 @@ npm start
 Сборка релиза: `npm run dist` → `release/Invis-Setup-*.exe` + `Invis-Portable-*.exe`.
 Готовые сборки — в [Releases](https://github.com/javierpenadev/Invis/releases).
 
-Подробнее — [example/README.md](example/README.md): структура, tray-поведение,
+Подробнее — [app/README.md](app/README.md): структура, tray-поведение,
 настройки, точки расширения.
 
 ## Статус

@@ -2,7 +2,7 @@
 
 Версия документа: 1.0 · Дата: 2026-09-09
 Исходный артефакт: `apk/Invizible_Pro__beta_ver.2.7.3.apk`
-База UI: очищенный шаблон `example/` (Electron, frameless-окно, тёмная тема)
+База UI: каркас `app/` (Electron, frameless-окно, тёмная тема)
 Результат разбора APK: распакованная копия в `apk_extracted/` (служебная, в порт не входит)
 
 ---
@@ -158,7 +158,7 @@ Android-версия перехватывает весь трафик (VPN/root)
 ## 4. Архитектура Windows-приложения
 
 ```
-Electron main (Node)                                Renderer (шаблон example/)
+Electron main (Node)                                Renderer (app/)
 ├─ DaemonSupervisor ─ spawn: tor.exe,               ├─ Dashboard: статусы/кнопки модулей
 │   dnscrypt-proxy.exe, i2pd.exe (+ obfs4proxy,      ├─ Logs: 3 канала stdout (фильтр, экспорт)
 │   snowflake-client, conjure-client при мостах)     ├─ Settings: Tor / DNSCrypt / I2Pd / Common
