@@ -46,6 +46,7 @@ function onReady() {
         binDir: binDir(),
         configDir,
         logDir: path.join(base, 'logs'),
+        i2pdDataDir: path.join(base, 'data', 'i2pd'),
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());

@@ -7,7 +7,7 @@ const { spawn, execFile } = require('child_process');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
-const { PORTS } = require('./configs');
+const { PORTS, shortPathSync } = require('./configs');
 
 function probePort(port, timeout = 400) {
     return new Promise((resolve) => {
@@ -36,14 +36,18 @@ function waitReady(port, { timeout = 30000, interval = 500 } = {}) {
 class DaemonSupervisor {
     /**
      * opts:
-     *   binDir    — каталог с bin/{tor,dnscrypt,i2pd}
-     *   configDir — каталог сгенерированных конфигов
-     *   logDir    — каталог логов сессии
-     *   onState   — callback({name, state, status})
+     *   binDir      — каталог с bin/{tor,dnscrypt,i2pd}
+     *   configDir   — каталог сгенерированных конфигов
+     *   logDir      — каталог логов сессии
+     *   i2pdDataDir — каталог данных i2pd (внутри сертификаты)
+     *   onState     — callback({name, state, status})
      */
-    constructor({ binDir, configDir, logDir, onState }) {
+    constructor({ binDir, configDir, logDir, i2pdDataDir, onState }) {
         this.onState = onState || (() => {});
         this.logDir = logDir;
+        /* i2pd: datadir/certsdir только через CLI — ключ datadir в ini игнорируется.
+         * Пути через shortPathSync: i2pd и tor не дружат с не-ASCII путями. */
+        const S = shortPathSync;
         this.specs = {
             tor: {
                 label: 'Tor',
@@ -61,7 +65,11 @@ class DaemonSupervisor {
             i2p: {
                 label: 'I2P',
                 exe: path.join(binDir, 'i2pd', 'i2pd.exe'),
-                args: ['--conf', path.join(configDir, 'i2pd.conf')],
+                args: [
+                    '--conf', S(path.join(configDir, 'i2pd.conf')),
+                    '--datadir', S(i2pdDataDir),
+                    '--certsdir', S(path.join(i2pdDataDir, 'certificates')),
+                ],
                 probePort: PORTS.i2pHttp,
             },
         };

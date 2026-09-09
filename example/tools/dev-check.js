@@ -27,6 +27,7 @@ const sup = new DaemonSupervisor({
     binDir: path.join(__dirname, '..', 'bin'),
     configDir,
     logDir: path.join(base, 'logs'),
+    i2pdDataDir: path.join(base, 'data', 'i2pd'),
     onState: ({ name, state, status }) => {
         console.log(`[${new Date().toISOString().slice(11, 19)}] ${name}: ${state} — ${status}`);
     },
