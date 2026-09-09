@@ -83,6 +83,10 @@
         'dnscrypt.forceTcp': 'setForceTcp',
         'dnscrypt.lanAccess': 'setLanAccess',
         'dnscrypt.queryLog': 'setQueryLog',
+        'dnscrypt.blockBrowserDoh': 'setBlockBrowserDoh',
+        'dnscrypt.presets.ads': 'presetAds',
+        'dnscrypt.presets.malware': 'presetMalware',
+        'tor.useBridges': 'setUseBridges',
         'autostart.dnscrypt': 'setAutoDnscrypt',
         'autostart.tor': 'setAutoTor',
         'autostart.i2p': 'setAutoI2p',
@@ -355,6 +359,8 @@
         initResolvers();
         initAdapters();
         initQueryLog();
+        initTor();
+        initDiag();
         setStatus('Готов к работе');
         console.log('Invis UI запущен');
     };

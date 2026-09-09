@@ -31,6 +31,13 @@ const DEFAULTS = {
         lanAccess: false,              // слушать 0.0.0.0 (доступ из LAN) вместо 127.0.0.1
         bootstrap: ['9.9.9.9:53', '8.8.8.8:53'], // незашифрованные резольверы для bootstrap
         queryLog: false,               // писать лог запросов (query.log)
+        blockBrowserDoh: true,         // canary use-application-dns.net (анти-утечка)
+        presets: { ads: false, malware: false }, // блок-листы
+    },
+    tor: {                             // параметры Tor
+        newIpMinutes: 0,               // авто-смена IP (NEWNYM), 0 = выкл
+        useBridges: false,             // использовать мосты (обход блокировок)
+        bridgesText: '',               // строки мостов, по одной на строку
     },
 };
 

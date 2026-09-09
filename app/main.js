@@ -12,6 +12,10 @@ const { buildAll: buildConfigs, PORTS } = require('./lib/configs');
 const { DaemonSupervisor } = require('./lib/daemons');
 const netmode = require('./lib/netmode');
 const { readResolvers } = require('./lib/resolvers');
+const torctl = require('./lib/torctl');
+const diag = require('./lib/diag');
+const blocklists = require('./lib/blocklists');
+const bridges = require('./lib/bridges');
 
 let win = null;
 let tray = null;
@@ -23,6 +27,7 @@ let settings = store.load();
 let supervisor = null;
 let configDirGlobal = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
+let newIpTimer = null;         // авто-смена IP Tor
 
 const TITLE = 'Invis';
 const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
@@ -68,9 +73,11 @@ function onReady() {
         torDataDir: path.join(base, 'data', 'tor'),
         i2pDataDir: path.join(base, 'data', 'i2pd'),
         geoipDir: path.join(binDir(), 'tor', 'data'),
+        torPluginDir: path.join(binDir(), 'tor', 'tor', 'pluggable_transports'),
         i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
         dnscryptListen: dnsApplied ? 53 : PORTS.dnscrypt,
         dnscryptCfg: settings.dnscrypt,
+        torCfg: settings.tor,
     });
     supervisor = new DaemonSupervisor({
         binDir: binDir(),
@@ -87,6 +94,7 @@ function onReady() {
     createWindow();
     initTrayIcons();
     createTray();
+    scheduleNewIp();
 
     /* Автозапуск модулей согласно настройкам */
     if (!process.env.INVIS_NO_AUTOSTART) {
@@ -209,9 +217,11 @@ function rebuildConfigsAndRestartDnscrypt() {
         torDataDir: path.join(base, 'data', 'tor'),
         i2pDataDir: path.join(base, 'data', 'i2pd'),
         geoipDir: path.join(binDir(), 'tor', 'data'),
+        torPluginDir: path.join(binDir(), 'tor', 'tor', 'pluggable_transports'),
         i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
         dnscryptListen: listen,
         dnscryptCfg: settings.dnscrypt,
+        torCfg: settings.tor,
     });
     supervisor?.setDnscryptPort(listen);
     if (supervisor?.isRunning('dnscrypt')) {
@@ -449,6 +459,32 @@ function setSetting(patch) {
         if (lanChanged) syncLanFirewall(Boolean(settings.dnscrypt?.lanAccess));
     }
 
+    /* Изменились параметры Tor — bridges требуют пересборки torrc и рестарта */
+    if (patch.tor !== undefined) {
+        scheduleNewIp();
+        if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined)
+                && supervisor?.isRunning('tor')) {
+            supervisor.stop('tor').then(() => supervisor.start('tor'));
+        }
+    }
+
+    /* Включённые пресеты блок-листов — докачать файлы и пересобрать */
+    const enabledPresets = patch.dnscrypt?.presets
+        ? Object.entries(patch.dnscrypt.presets).filter(([, v]) => v).map(([k]) => k)
+        : [];
+    for (const name of enabledPresets) {
+        (async () => {
+            try {
+                sendToRenderer('modules:event', { text: `Загрузка блок-листа «${blocklists.PRESETS[name].label}»…` });
+                await blocklists.ensure(configDirGlobal, name);
+                sendToRenderer('modules:event', { text: `Блок-лист «${blocklists.PRESETS[name].label}» загружен` });
+                rebuildConfigsAndRestartDnscrypt();
+            } catch (e) {
+                sendToRenderer('modules:event', { text: `Блок-лист «${name}»: ${e.message}` });
+            }
+        })();
+    }
+
     /* Изменился выбор адаптеров перехвата — пере-применить DNS */
     if (adaptersChanged && dnsApplied) {
         restoreSystemDns();
@@ -459,6 +495,18 @@ function setSetting(patch) {
     tray?.setContextMenu(trayMenu());
     sendToRenderer('settings:changed', settings);
     return settings;
+}
+
+/* ---------- Tor: NEWNYM (смена IP) ---------- */
+function scheduleNewIp() {
+    if (newIpTimer) { clearInterval(newIpTimer); newIpTimer = null; }
+    const minutes = Number(settings.tor?.newIpMinutes) || 0;
+    if (minutes <= 0) return;
+    newIpTimer = setInterval(async () => {
+        if (!supervisor?.isRunning('tor')) return;
+        const r = await torctl.newIp(path.join(store.baseDir(), 'data', 'tor'));
+        sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка (новый IP)' : `Tor NEWNYM: ${r.detail}` });
+    }, minutes * 60000);
 }
 
 function sendToRenderer(channel, payload) {
@@ -540,6 +588,38 @@ ipcMain.handle('adapters:list', () => {
     try { return { ok: true, list: netmode.getUpPhysicalAdapters() }; }
     catch (e) { return { ok: false, error: e.message }; }
 });
+
+/* ---------- IPC: диагностика, Tor NEWNYM, мосты, ярлыки ---------- */
+const { shell } = require('electron');
+
+ipcMain.handle('diag:run', async () => {
+    const listen = dnsApplied ? 53 : PORTS.dnscrypt;
+    const res = { dns: { ok: false, detail: 'не запущен' }, tor: { ok: false, detail: 'не запущен' }, i2p: { ok: false, detail: 'не запущен' } };
+    if (supervisor?.isRunning('dnscrypt')) res.dns = await diag.dnsQueryTcp(listen);
+    if (supervisor?.isRunning('tor')) {
+        const est = await torctl.circuitEstablished(path.join(store.baseDir(), 'data', 'tor'));
+        res.tor = { ok: est, detail: est ? 'цепочка установлена' : 'цепочка ещё строится' };
+    }
+    if (supervisor?.isRunning('i2p')) {
+        res.i2p = { ok: await diag.probeTcp(PORTS.i2pHttp), detail: 'прокси 4444' };
+    }
+    sendToRenderer('diag:result', res);
+    return res;
+});
+
+ipcMain.on('tor:newip', async () => {
+    if (!supervisor?.isRunning('tor')) {
+        sendToRenderer('modules:event', { text: 'Tor не запущен — IP менять нечего' });
+        return;
+    }
+    const r = await torctl.newIp(path.join(store.baseDir(), 'data', 'tor'));
+    sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка (новый IP)' : `Tor NEWNYM: ${r.detail}` });
+});
+
+ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(transport || 'obfs4'));
+
+ipcMain.on('open:console-i2p', () => shell.openExternal('http://127.0.0.1:7070'));
+ipcMain.on('open:logs', () => shell.openPath(path.join(store.baseDir(), 'logs')));
 
 /* ---------- нативные диалоги (общие) ---------- */
 ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => {

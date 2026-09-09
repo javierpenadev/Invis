@@ -56,6 +56,13 @@
         <section class="fields-section">
             <h3>Модули</h3>
 
+            <div class="btn-row" style="margin:0 0 10px">
+                <button class="mini-btn" id="diagBtn" data-cursor-text="🩺">🔍 Проверить</button>
+                <button class="mini-btn ghost" id="i2pConsoleBtn" data-cursor-text="↗">Консоль I2P</button>
+                <button class="mini-btn ghost" id="logsFolderBtn" data-cursor-text="▤">Папка логов</button>
+            </div>
+            <div class="log-view is-hidden" id="diagBox" style="height:130px"></div>
+
             <div class="module-row" data-module="dnscrypt">
                 <span class="module-dot" id="dotDnscrypt"></span>
                 <div class="module-info">
@@ -71,6 +78,7 @@
                     <span class="module-name">Tor</span>
                     <span class="module-status hint" id="statusTor">остановлен</span>
                 </div>
+                <button class="mini-btn ghost" id="torNewIpBtn" data-cursor-text="↻" title="Получить новый выходной IP (NEWNYM)">↻ IP</button>
                 <button class="mini-btn module-toggle" data-module="tor" data-cursor-text="⏻">Пуск</button>
             </div>
 
@@ -108,6 +116,15 @@
 
             <div class="settings-subtitle">Резервные (незашифрованные) резольверы</div>
             <input type="text" class="text-input" id="setBootstrap" placeholder="9.9.9.9:53, 8.8.8.8:53" spellcheck="false">
+
+            <div class="settings-subtitle">Блок-листы</div>
+            <div class="btn-row">
+                <label class="check-row"><input type="checkbox" id="setBlockBrowserDoh"> Блокировать браузерный DoH</label>
+            </div>
+            <div class="btn-row">
+                <label class="check-row"><input type="checkbox" id="presetAds"> Реклама и трекеры</label>
+                <label class="check-row"><input type="checkbox" id="presetMalware"> Фишинг и малварь</label>
+            </div>
         </section>
         </div>
 
@@ -135,6 +152,22 @@
 
             <div class="settings-subtitle">Адаптеры перехвата DNS <span class="hint">(пусто = все физические)</span></div>
             <div class="btn-row" id="adapterList"><span class="hint">—</span></div>
+
+            <div class="settings-subtitle">Tor</div>
+            <label class="check-row">
+                <input type="checkbox" id="setUseBridges"> Использовать мосты (обход блокировок)
+            </label>
+            <div id="bridgesBlock" class="is-hidden">
+                <textarea class="text-input" id="setBridges" rows="4" spellcheck="false"
+                          placeholder="obfs4 1.2.3.4:443 cert=... iat-mode=0&#10;(по одной строке на мост, префикс Bridge не нужен)"></textarea>
+                <div class="btn-row">
+                    <button class="mini-btn" id="fetchBridgesBtn" data-cursor-text="⇩">Запросить мосты obfs4</button>
+                    <span class="hint">В комплекте: obfs4 (lyrebird), conjure. Полученные строки можно править.</span>
+                </div>
+            </div>
+            <div class="settings-subtitle">Автосмена IP Tor</div>
+            <input type="text" class="text-input" id="setNewIpMinutes" inputmode="numeric" placeholder="0" style="max-width:140px">
+            <span class="hint">интервал в минутах, 0 — выключено</span>
 
             <div class="settings-subtitle">Автозапуск модулей при старте Invis</div>
             <div class="btn-row">
