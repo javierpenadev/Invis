@@ -401,7 +401,7 @@
             const r = await UIBridge.invoke('bridges:fetch', 'obfs4');
             UIHelpers.setButtonWaiting(btn, false);
             if (!r || !r.ok) {
-                TemplateUI.setStatus(r?.error || 'Не удалось получить мосты', { error: true });
+                InvisUI.setStatus(r?.error || 'Не удалось получить мосты', { error: true });
                 return;
             }
             if (ta) {
@@ -410,7 +410,7 @@
                 ta.value = merged;
                 UIBridge.invoke('settings:set', { tor: { bridgesText: merged } });
             }
-            TemplateUI.setStatus(`Получено мостов: ${r.lines.length}`);
+            InvisUI.setStatus(`Получено мостов: ${r.lines.length}`);
         });
         $('#setNewIpMinutes')?.addEventListener('change', (e) => {
             const n = Math.max(0, Math.round(Number(e.target.value) || 0));
@@ -418,29 +418,46 @@
             UIBridge.invoke('settings:set', { tor: { newIpMinutes: n } });
         });
         $('#torNewIpBtn')?.addEventListener('click', () => {
-            TemplateUI.setStatus('Tor: запрашиваем новый IP…');
+            InvisUI.setStatus('Tor: запрашиваем новый IP…');
             UIBridge.send('tor:newip');
         });
-        UIBridge.on('modules:event', ({ text }) => TemplateUI.setStatus(text));
+        UIBridge.on('modules:event', ({ text }) => InvisUI.setStatus(text));
     };
 
     const initDiag = () => {
         const box = $('#diagBox');
+        const btn = $('#diagBtn');
+        const render = (r) => {
+            if (!box || !r) return;
+            const line = (label, v) => {
+                if (!v) return '';
+                const done = v.detail !== 'проверяю…';
+                const cls = !done ? 'log-warn' : (v.ok ? 'log-info' : 'log-error');
+                const mark = !done ? '⏳' : (v.ok ? '✓' : '✗');
+                return `<span class="${cls}">${mark} ${label}</span>: ${StringUtils.escape(v.detail || '')}`;
+            };
+            box.innerHTML = [
+                line('DNSCrypt', r.dns),
+                line('Tor', r.tor),
+                line('I2P', r.i2p),
+                line('Ваш реальный IP', r.realIp),
+                line('IP через Tor', r.torIp),
+            ].filter(Boolean).join('<br>');
+        };
         $('#diagBtn')?.addEventListener('click', async () => {
             if (box) { box.classList.remove('is-hidden'); box.textContent = 'Проверяю…'; }
-            const r = await UIBridge.invoke('diag:run');
-            if (box && r) {
-                const line = (label, v) =>
-                    `<span class="${v.ok ? 'log-info' : 'log-error'}">${v.ok ? '✓' : '✗'} ${label}</span>: ${StringUtils.escape(v.detail || '')}`;
-                box.innerHTML = [
-                    line('DNSCrypt', r.dns),
-                    line('Tor', r.tor),
-                    line('I2P', r.i2p),
-                    line('Ваш реальный IP', r.realIp),
-                    line('IP через Tor', r.torIp),
-                ].join('<br>');
+            if (btn) btn.disabled = true;
+            try {
+                const r = await UIBridge.invoke('diag:run');
+                render(r);
+            } catch (e) {
+                if (box) box.innerHTML = `<span class="log-error">✗ Ошибка проверки: ${StringUtils.escape(e.message || e)}</span>`;
+            } finally {
+                if (btn) btn.disabled = false;
             }
         });
+        /* промежуточные кадры от main — строки появляются по мере готовности */
+        UIBridge.on('diag:result', render);
         $('#i2pConsoleBtn')?.addEventListener('click', () => UIBridge.send('open:console-i2p'));
         $('#logsFolderBtn')?.addEventListener('click', () => UIBridge.send('open:logs'));
     };
@@ -482,11 +499,11 @@
         UIBridge.on('update:available', (d) => {
             cur.available = true; cur.version = d.version;
             render();
-            TemplateUI.setStatus('Доступна новая версия Invis — можно обновить');
+            InvisUI.setStatus('Доступна новая версия Invis — можно обновить');
         });
         UIBridge.on('update:progress', (d) => {
             if (d.error) {
-                TemplateUI.setStatus(`Ошибка обновления: ${d.error}`, { error: true });
+                InvisUI.setStatus(`Ошибка обновления: ${d.error}`, { error: true });
                 cur.downloading = false; render();
                 return;
             }
@@ -494,7 +511,7 @@
         });
         UIBridge.on('update:downloaded', () => {
             cur.downloading = false; cur.readyToInstall = true; render();
-            TemplateUI.setStatus('Обновление скачано — приложение перезапустится и установит его');
+            InvisUI.setStatus('Обновление скачано — приложение перезапустится и установит его');
         });
         btn?.addEventListener('click', () => UIBridge.send('update:install'));
     };

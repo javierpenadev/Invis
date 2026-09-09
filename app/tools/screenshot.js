@@ -35,6 +35,25 @@ ipcMain.handle('app:info', () => ({
 ipcMain.handle('resolvers:list', () => ({ ok: false, error: 'демо' }));
 ipcMain.handle('adapters:list', () => ({ ok: true, list: ['Беспроводная сеть'] }));
 ipcMain.handle('querylog:get', () => ({ lines: [], total: 0 }));
+let winRef = null;
+ipcMain.handle('diag:run', async () => {
+    const res = {
+        dns: { ok: true, detail: 'ответ: 3 запис(ей) · порт 53' },
+        tor: { ok: false, detail: 'проверяю…' },
+        i2p: { ok: true, detail: 'прокси 4444' },
+        realIp: { ok: false, detail: 'проверяю…' },
+        torIp: { ok: false, detail: 'проверяю…' },
+    };
+    setTimeout(() => {
+        winRef?.webContents.send('diag:result', {
+            ...res,
+            tor: { ok: true, detail: 'цепочка установлена' },
+            realIp: { ok: true, detail: '93.170.44.76' },
+            torIp: { ok: true, detail: '185.220.101.57 (выход Tor)' },
+        });
+    }, 2200);
+    return res;
+});
 ipcMain.handle('update:state', () => ({
     available: true, version: '1.3.1', downloading: false, percent: 0,
     readyToInstall: false, currentVersion: '1.3.0', autoUpdate: true, installSupported: true,
@@ -47,6 +66,7 @@ app.whenReady().then(async () => {
         webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
     });
     await win.loadFile(path.join(__dirname, '..', 'index.html'));
+    win.webContents.executeJavaScript("document.querySelector('#diagBtn').click()").catch(() => {});
     setTimeout(async () => {
         const img = win.webContents.capturePage();
         require('fs').writeFileSync(OUT, (await img).toPNG());

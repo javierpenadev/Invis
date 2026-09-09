@@ -158,8 +158,12 @@ function restoreSystemDns() {
     if (!backup) { dnsApplied = false; return; }
     for (const { alias, addresses } of backup) {
         try {
-            if (addresses && addresses.length) netmode.setDnsList(alias, addresses);
-            else netmode.resetDns(alias);
+            /* Если в бэкапе только loopback — прежний локальный резольвер уже не
+             * работает, восстановление вернёт нерабочий DNS. Ставим публичные. */
+            const allLoopback = addresses.length
+                && addresses.every((a) => /^(127\.|::1$)/.test(a));
+            if (!addresses.length || allLoopback) netmode.resetDns(alias);
+            else netmode.setDnsList(alias, addresses);
         } catch (e) {
             netmodeLog(`ОШИБКА восстановления DNS на «${alias}»: ${e.message}`);
         }
@@ -707,20 +711,52 @@ const ipinfo = require('./lib/ipinfo');
 
 ipcMain.handle('diag:run', async () => {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
-    const res = { dns: { ok: false, detail: 'не запущен' }, tor: { ok: false, detail: 'не запущен' }, i2p: { ok: false, detail: 'не запущен' } };
+    const pending = 'проверяю…';
+    const res = {
+        dns: { ok: false, detail: supervisor?.isRunning('dnscrypt') ? pending : 'не запущен' },
+        tor: { ok: false, detail: supervisor?.isRunning('tor') ? pending : 'не запущен' },
+        i2p: { ok: false, detail: supervisor?.isRunning('i2p') ? pending : 'не запущен' },
+        realIp: { ok: false, detail: pending },
+        torIp: { ok: false, detail: supervisor?.isRunning('tor') ? pending : 'Tor не запущен' },
+    };
+    const push = () => sendToRenderer('diag:result', res);
+    push(); // первый кадр — сразу видно, что проверка идёт
+
     const jobs = [];
-    if (supervisor?.isRunning('dnscrypt')) jobs.push(diag.dnsQueryTcp(listen).then((v) => { res.dns = { ...v, detail: `${v.detail} · порт ${listen}` }; }));
-    if (supervisor?.isRunning('tor')) {
-        jobs.push(ipinfo.getTorIp(PORTS.torSocks)
-            .then((v) => { res.tor = { ok: v.isTor, detail: `${v.ip} (выход Tor)` }; })
-            .catch((e) => { res.tor = { ok: false, detail: e.message }; }));
-    } else {
-        res.tor = { ok: false, detail: 'не запущен' };
+    if (supervisor?.isRunning('dnscrypt')) {
+        jobs.push(diag.dnsQueryTcp(listen).then((v) => {
+            res.dns = { ...v, detail: `${v.detail} · порт ${listen}` };
+            push();
+        }));
     }
-    if (supervisor?.isRunning('i2p')) jobs.push(diag.probeTcp(PORTS.i2pHttp).then((ok) => { res.i2p = { ok, detail: 'прокси 4444' }; }));
-    jobs.push(ipinfo.getDirectIp().then((ip) => { res.realIp = { ok: true, detail: ip }; }).catch((e) => { res.realIp = { ok: false, detail: e.message }; }));
-    await Promise.all(jobs);
-    sendToRenderer('diag:result', res);
+    if (supervisor?.isRunning('tor')) {
+        jobs.push(torctl.circuitEstablished(path.join(store.baseDir(), 'data', 'tor')).then((est) => {
+            res.tor = { ok: est, detail: est ? 'цепочка установлена' : 'цепочка ещё строится' };
+            push();
+        }));
+        jobs.push(ipinfo.getTorIp(PORTS.torSocks).then((v) => {
+            res.torIp = { ok: v.isTor, detail: `${v.ip} (выход Tor)` };
+            push();
+        }).catch((e) => {
+            res.torIp = { ok: false, detail: e.message };
+            push();
+        }));
+    }
+    if (supervisor?.isRunning('i2p')) {
+        jobs.push(diag.probeTcp(PORTS.i2pHttp).then((ok) => {
+            res.i2p = { ok, detail: 'прокси 4444' };
+            push();
+        }));
+    }
+    jobs.push(ipinfo.getDirectIp().then((ip) => {
+        res.realIp = { ok: true, detail: ip };
+        push();
+    }).catch((e) => {
+        res.realIp = { ok: false, detail: e.message };
+        push();
+    }));
+    await Promise.allSettled(jobs);
+    push();
     return res;
 });
 

@@ -6,10 +6,9 @@ const net = require('net');
 const tls = require('tls');
 const https = require('https');
 
-/* Прямой IP: https://api.ipify.org */
-function getDirectIp(timeout = 8000) {
+function fetchIp(url, timeout = 8000) {
     return new Promise((resolve, reject) => {
-        const req = https.get('https://api.ipify.org', { timeout }, (res) => {
+        const req = https.get(url, { timeout }, (res) => {
             let data = '';
             res.on('data', (c) => { data += c; });
             res.on('end', () => {
@@ -20,6 +19,12 @@ function getDirectIp(timeout = 8000) {
         req.on('timeout', () => { req.destroy(); reject(new Error('таймаут')); });
         req.on('error', reject);
     });
+}
+
+/* Прямой IP с запасным источником */
+async function getDirectIp(timeout = 8000) {
+    try { return await fetchIp('https://api.ipify.org', timeout); }
+    catch (e) { return await fetchIp('https://icanhazip.com', timeout); }
 }
 
 /* SOCKS5 CONNECT по домену; возвращает готовый сокет */
