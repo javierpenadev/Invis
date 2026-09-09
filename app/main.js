@@ -11,6 +11,7 @@ const store = require('./store');
 const { buildAll: buildConfigs, PORTS } = require('./lib/configs');
 const { DaemonSupervisor } = require('./lib/daemons');
 const netmode = require('./lib/netmode');
+const { readResolvers } = require('./lib/resolvers');
 
 let win = null;
 let tray = null;
@@ -69,6 +70,7 @@ function onReady() {
         geoipDir: path.join(binDir(), 'tor', 'data'),
         i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
         dnscryptListen: dnsApplied ? 53 : PORTS.dnscrypt,
+        dnscryptCfg: settings.dnscrypt,
     });
     supervisor = new DaemonSupervisor({
         binDir: binDir(),
@@ -117,8 +119,11 @@ function applySystemDns() {
                  + 'Остановите его или настройте на использование Invis, затем повторите.',
         };
     }
-    const adapters = netmode.getUpPhysicalAdapters();
-    if (!adapters.length) return { ok: false, error: 'Не найдено активных сетевых адаптеров.' };
+    const up = netmode.getUpPhysicalAdapters();
+    if (!up.length) return { ok: false, error: 'Не найдено активных сетевых адаптеров.' };
+    /* Выбранные пользователем адаптеры (пустой выбор = все физические) */
+    const selected = (settings.systemDnsAdapters || []).filter((a) => up.includes(a));
+    const adapters = selected.length ? selected : up;
     const backup = adapters.map((a) => ({ alias: a, addresses: netmode.getDnsServers(a) }));
     netmode.writeBackup(dnsBackupFile(), backup);
     netmodeLog(`Перехват DNS включён. Адаптеры: [${adapters.join(', ')}]. Сохранено: `
@@ -206,10 +211,33 @@ function rebuildConfigsAndRestartDnscrypt() {
         geoipDir: path.join(binDir(), 'tor', 'data'),
         i2pdContribDir: path.join(binDir(), 'i2pd', 'contrib'),
         dnscryptListen: listen,
+        dnscryptCfg: settings.dnscrypt,
     });
     supervisor?.setDnscryptPort(listen);
     if (supervisor?.isRunning('dnscrypt')) {
         supervisor.stop('dnscrypt').then(() => supervisor.start('dnscrypt'));
+    }
+}
+
+/* Firewall-правило для доступа к DNS из LAN (best-effort, нужен админ) */
+function syncLanFirewall(enabled) {
+    try {
+        if (enabled) {
+            execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
+                'name=Invis DNS (UDP 53)', 'dir=in', 'action=allow', 'protocol=UDP', 'localport=53'],
+                { windowsHide: true, stdio: 'ignore' });
+            execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
+                'name=Invis DNS (TCP 53)', 'dir=in', 'action=allow', 'protocol=TCP', 'localport=53'],
+                { windowsHide: true, stdio: 'ignore' });
+        } else {
+            execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=Invis DNS (UDP 53)'],
+                { windowsHide: true, stdio: 'ignore' });
+            execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=Invis DNS (TCP 53)'],
+                { windowsHide: true, stdio: 'ignore' });
+        }
+        netmodeLog(`Firewall LAN DNS: ${enabled ? 'разрешён' : 'правила удалены'}`);
+    } catch (e) {
+        netmodeLog(`Firewall LAN DNS: не удалось (${e.message})`);
     }
 }
 
@@ -363,6 +391,11 @@ function applyLaunchWithWindows() {
 
 /* ---------- изменения настроек (общая точка: IPC и меню трея) ---------- */
 function setSetting(patch) {
+    const lanChanged = patch.dnscrypt && patch.dnscrypt.lanAccess !== undefined
+        && patch.dnscrypt.lanAccess !== Boolean(settings.dnscrypt?.lanAccess);
+    const adaptersChanged = patch.systemDnsAdapters !== undefined
+        && JSON.stringify(patch.systemDnsAdapters) !== JSON.stringify(settings.systemDnsAdapters);
+
     /* Особый случай: перехват системного DNS */
     if (patch.systemDns !== undefined && patch.systemDns !== Boolean(settings.systemDns)) {
         const want = patch.systemDns;
@@ -404,11 +437,25 @@ function setSetting(patch) {
         }
     }
 
-    /* Глубокий merge в дефолты — неизвестные ключи отбрасываются, вложенный
-     * autostart не теряет соседние флаги при частичном патче */
+    /* Глубокий merge в дефолты — неизвестные ключи отбрасываются, вложенные
+     * объекты (autostart, dnscrypt) не теряют соседние флаги при частичном патче */
     settings = store.deepMerge(store.load(), patch);
     store.save(settings);
     if (patch.launchWithWindows !== undefined) applyLaunchWithWindows();
+
+    /* Изменились параметры dnscrypt — перегенерировать toml и мягко перезапустить */
+    if (patch.dnscrypt !== undefined) {
+        rebuildConfigsAndRestartDnscrypt();
+        if (lanChanged) syncLanFirewall(Boolean(settings.dnscrypt?.lanAccess));
+    }
+
+    /* Изменился выбор адаптеров перехвата — пере-применить DNS */
+    if (adaptersChanged && dnsApplied) {
+        restoreSystemDns();
+        const r = applySystemDns();
+        if (!r.ok) netmodeLog(`Повторное применение после смены адаптеров: ${r.error}`);
+    }
+
     tray?.setContextMenu(trayMenu());
     sendToRenderer('settings:changed', settings);
     return settings;
@@ -456,6 +503,42 @@ ipcMain.on('modules:start', (_e, name) => supervisor?.start(name));
 ipcMain.on('modules:stop', (_e, name) => {
     if (guardDnscryptStop(name)) return;
     supervisor?.stop(name);
+});
+
+/* ---------- IPC: резольверы, лог запросов, адаптеры ---------- */
+ipcMain.handle('resolvers:list', () => {
+    if (!configDirGlobal) return { ok: false, error: 'Приложение ещё инициализируется' };
+    return readResolvers(configDirGlobal);
+});
+
+ipcMain.handle('querylog:get', (_e, { filter } = {}) => {
+    const file = path.join(configDirGlobal || '', 'query.log');
+    let content = '';
+    try {
+        const fd = fs.openSync(file, 'r');
+        const size = fs.fstatSync(fd).size;
+        const start = Math.max(0, size - 128 * 1024);
+        const buf = Buffer.alloc(size - start);
+        fs.readSync(fd, buf, 0, buf.length, start);
+        fs.closeSync(fd);
+        content = buf.toString('utf8');
+    } catch (e) {
+        return { lines: [], total: 0 };
+    }
+    let lines = content.split(/\r?\n/).filter(Boolean);
+    if (start) lines = lines.slice(1); // обрезать возможную половинную строку
+    if (filter) lines = lines.filter((l) => l.toLowerCase().includes(String(filter).toLowerCase()));
+    const total = lines.length;
+    return { lines: lines.slice(-200), total };
+});
+
+ipcMain.on('querylog:clear', () => {
+    try { fs.writeFileSync(path.join(configDirGlobal || '', 'query.log'), '', 'utf8'); } catch (e) {}
+});
+
+ipcMain.handle('adapters:list', () => {
+    try { return { ok: true, list: netmode.getUpPhysicalAdapters() }; }
+    catch (e) { return { ok: false, error: e.message }; }
 });
 
 /* ---------- нативные диалоги (общие) ---------- */

@@ -51,7 +51,16 @@ Headless-проверка демонов (без GUI): `npm run check`.
   "launchWithWindows": false,
   "closeToTray": true,
   "systemDns": false,
-  "autostart": { "dnscrypt": true, "tor": true, "i2p": false }
+  "systemDnsAdapters": [],
+  "autostart": { "dnscrypt": true, "tor": true, "i2p": false },
+  "dnscrypt": {
+    "autoMode": true, "servers": [],
+    "requireDnssec": false, "requireNolog": true, "requireNofilter": true,
+    "dnscryptProto": true, "dohProto": true,
+    "cache": true, "blockIpv6": false, "forceTcp": false, "lanAccess": false,
+    "bootstrap": ["9.9.9.9:53", "8.8.8.8:53"],
+    "queryLog": false
+  }
 }
 
 `systemDns: true` — перехват системного DNS: адаптеры переводятся на 127.0.0.1,
@@ -60,7 +69,13 @@ dnscrypt слушает порт 53 вместо 9053 (нужен запуск �
 и восстанавливаются при выходе; если сеанс упал — восстановление предлагается
 при следующем старте. Порт 53 занят другим сервисом (например, сторонним
 dnscrypt) — включение блокируется с понятной ошибкой. Журнал переключений:
-`logs/netmode.log`.
+`logs/netmode.log`. Выбор адаптеров — `systemDnsAdapters` (пусто = все физические).
+
+Раздел «DNS-резольверы» в UI: авто-режим (самые быстрые) или ручной выбор из
+списка (парсится из кэша `public-resolvers.md`, который обновляет сам dnscrypt);
+фильтры DNSSEC/NOLOG/NOFILTER/протоколы; DNS-кэш, блокирование IPv6, принудительный
+TCP, доступ из LAN (с firewall-правилом), резервные bootstrap-резольверы, лог
+запросов с просмотрщиком.
 ```
 
 ## Структура

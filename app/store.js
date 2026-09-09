@@ -11,10 +11,26 @@ const DEFAULTS = {
     launchWithWindows: false,          // запускать вместе с Windows
     closeToTray: true,                 // при закрытии сворачивать в трей
     systemDns: false,                  // перехват системного DNS (порт 53, нужен админ)
+    systemDnsAdapters: [],             // имена адаптеров; пусто = все физические
     autostart: {                       // автозапуск модулей при старте Invis
         dnscrypt: true,
         tor: true,
         i2p: false,
+    },
+    dnscrypt: {                        // параметры dnscrypt-proxy (gen. toml)
+        autoMode: true,                // авто-выбор самых быстрых резольверов
+        servers: [],                   // ручной выбор: имена резольверов
+        requireDnssec: false,          // только серверы с DNSSEC
+        requireNolog: true,            // только без логов
+        requireNofilter: true,         // только без фильтрации
+        dnscryptProto: true,           // разрешить протокол DNSCrypt
+        dohProto: true,                // разрешить DoH
+        cache: true,                   // DNS-кэш
+        blockIpv6: false,              // пустой ответ на AAAA-запросы
+        forceTcp: false,               // исходящие только по TCP
+        lanAccess: false,              // слушать 0.0.0.0 (доступ из LAN) вместо 127.0.0.1
+        bootstrap: ['9.9.9.9:53', '8.8.8.8:53'], // незашифрованные резольверы для bootstrap
+        queryLog: false,               // писать лог запросов (query.log)
     },
 };
 

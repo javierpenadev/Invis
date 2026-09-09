@@ -72,6 +72,17 @@
         launchWithWindows: 'setLaunchWithWindows',
         closeToTray: 'setCloseToTray',
         systemDns: 'setSystemDns',
+        'dnscrypt.autoMode': 'setDnscryptAuto',
+        'dnscrypt.requireDnssec': 'fltRequireDnssec',
+        'dnscrypt.requireNolog': 'fltRequireNolog',
+        'dnscrypt.requireNofilter': 'fltRequireNofilter',
+        'dnscrypt.dnscryptProto': 'fltDnscryptProto',
+        'dnscrypt.dohProto': 'fltDohProto',
+        'dnscrypt.cache': 'setCache',
+        'dnscrypt.blockIpv6': 'setBlockIpv6',
+        'dnscrypt.forceTcp': 'setForceTcp',
+        'dnscrypt.lanAccess': 'setLanAccess',
+        'dnscrypt.queryLog': 'setQueryLog',
         'autostart.dnscrypt': 'setAutoDnscrypt',
         'autostart.tor': 'setAutoTor',
         'autostart.i2p': 'setAutoI2p',
@@ -100,7 +111,10 @@
         }
 
         /* Настройки могли изменить из трея — синхронизируем форму */
-        UIBridge.on('settings:changed', applySettingsToForm);
+        UIBridge.on('settings:changed', (s) => {
+            applySettingsToForm(s);
+            syncResolverSelection(s);
+        });
     };
 
     /* ---------- модули: состояния приходят из main (DaemonSupervisor) ---------- */
@@ -127,6 +141,159 @@
         if (!active.length) { InvisUI.setStatus('Готов к работе'); return; }
         const parts = active.map(([n]) => `${NAMES[n]} ${statusText[n] || DEFAULT_STATUS[moduleStates[n]]}`);
         InvisUI.setStatus(parts.join(' · '));
+    };
+
+    /* ---------- резольверы ---------- */
+    const resolverState = { list: [], loaded: false, selected: new Set() };
+
+    const resolverVisible = () => {
+        const q = ($('#resolverSearch')?.value || '').toLowerCase();
+        const wantDnssec = $('#fltRequireDnssec')?.checked;
+        const wantNolog = $('#fltRequireNolog')?.checked;
+        const wantNofilter = $('#fltRequireNofilter')?.checked;
+        const allowDnscryptProto = $('#fltDnscryptProto')?.checked;
+        const allowDoh = $('#fltDohProto')?.checked;
+        return resolverState.list.filter((r) => {
+            if (q && !(`${r.name} ${r.description}`.toLowerCase().includes(q))) return false;
+            if (wantDnssec && !r.dnssec) return false;
+            if (wantNolog && !r.nolog) return false;
+            if (wantNofilter && !r.nofilter) return false;
+            if (allowDnscryptProto && r.protos.includes('DNSCrypt')) return true;
+            if (allowDoh && r.protos.includes('DoH')) return true;
+            return !(allowDnscryptProto || allowDoh);
+        });
+    };
+
+    const renderResolverList = () => {
+        const box = $('#resolverList');
+        if (!box) return;
+        const visible = resolverVisible();
+        const cap = 300;
+        box.innerHTML = '';
+        for (const r of visible.slice(0, cap)) {
+            const row = document.createElement('label');
+            row.className = 'resolver-row';
+            const badges = [
+                r.protos.join('/'),
+                r.dnssec ? 'DNSSEC' : null,
+                r.nolog ? 'NOLOG' : null,
+                r.nofilter ? 'NOFILTER' : null,
+            ].filter(Boolean).join(' · ');
+            row.innerHTML = `<input type="checkbox" ${resolverState.selected.has(r.name) ? 'checked' : ''}>`
+                + `<span class="resolver-name" title="${StringUtils.escape(r.description)}">${StringUtils.escape(r.name)}</span>`
+                + `<span class="hint resolver-props">${StringUtils.escape(badges)}</span>`;
+            row.querySelector('input').addEventListener('change', (e) => {
+                e.target.checked ? resolverState.selected.add(r.name) : resolverState.selected.delete(r.name);
+                UIBridge.invoke('settings:set', { dnscrypt: { autoMode: false, servers: [...resolverState.selected] } });
+                updateResolverInfo(visible.length);
+            });
+            box.appendChild(row);
+        }
+        updateResolverInfo(visible.length);
+    };
+
+    const updateResolverInfo = (shown) => {
+        const el = $('#resolverInfo');
+        if (el) el.textContent = `выбрано ${resolverState.selected.size} · показано ${Math.min(shown, 300)} из ${resolverState.list.length}`;
+    };
+
+    const syncResolverSelection = (s) => {
+        resolverState.selected = new Set(s?.dnscrypt?.servers || []);
+        renderResolverList();
+        const controls = $('#resolverControls');
+        if (controls) controls.classList.toggle('is-hidden', Boolean(s?.dnscrypt?.autoMode));
+        const auto = $('#setDnscryptAuto');
+        if (auto) auto.checked = Boolean(s?.dnscrypt?.autoMode);
+    };
+
+    const initResolvers = async () => {
+        const r = await UIBridge.invoke('resolvers:list');
+        if (r && r.ok) { resolverState.list = r.list; resolverState.loaded = true; }
+        const info = $('#resolverInfo');
+        if (info && !resolverState.loaded) info.textContent = r?.error || 'Список недоступен';
+
+        $('#resolverSearch')?.addEventListener('input', renderResolverList);
+        for (const id of ['fltRequireDnssec', 'fltRequireNolog', 'fltRequireNofilter', 'fltDohProto', 'fltDnscryptProto']) {
+            document.getElementById(id)?.addEventListener('change', renderResolverList);
+        }
+        /* фильтры-галки одновременно являются require_* настройками dnscrypt */
+        for (const [key, id] of [['dnscrypt.requireDnssec', 'fltRequireDnssec'],
+                                 ['dnscrypt.requireNolog', 'fltRequireNolog'],
+                                 ['dnscrypt.requireNofilter', 'fltRequireNofilter'],
+                                 ['dnscrypt.dnscryptProto', 'fltDnscryptProto'],
+                                 ['dnscrypt.dohProto', 'fltDohProto']]) {
+            document.getElementById(id)?.addEventListener('change', (e) => {
+                UIBridge.invoke('settings:set', { dnscrypt: { [key.split('.')[1]]: e.target.checked } });
+            });
+        }
+        $('#setDnscryptAuto')?.addEventListener('change', (e) => {
+            $('#resolverControls')?.classList.toggle('is-hidden', e.target.checked);
+            UIBridge.invoke('settings:set', { dnscrypt: { autoMode: e.target.checked } });
+        });
+        $('#setBootstrap')?.addEventListener('change', (e) => {
+            const list = e.target.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+            if (list.length) UIBridge.invoke('settings:set', { dnscrypt: { bootstrap: list } });
+        });
+        syncResolverSelection(await UIBridge.invoke('settings:get'));
+    };
+
+    /* ---------- адаптеры перехвата DNS ---------- */
+    const renderAdapters = (s, list) => {
+        const box = $('#adapterList');
+        if (!box) return;
+        const selected = new Set(s?.systemDnsAdapters || []);
+        box.innerHTML = '';
+        if (!list || !list.length) {
+            box.innerHTML = '<span class="hint">Нет активных адаптеров</span>';
+            return;
+        }
+        for (const name of list) {
+            const label = document.createElement('label');
+            label.className = 'check-row';
+            label.innerHTML = `<input type="checkbox" ${selected.has(name) ? 'checked' : ''}> ${StringUtils.escape(name)}`;
+            label.querySelector('input').addEventListener('change', (e) => {
+                e.target.checked ? selected.add(name) : selected.delete(name);
+                UIBridge.invoke('settings:set', { systemDnsAdapters: [...selected] });
+            });
+            box.appendChild(label);
+        }
+    };
+
+    const initAdapters = async () => {
+        const r = await UIBridge.invoke('adapters:list');
+        const current = await UIBridge.invoke('settings:get');
+        renderAdapters(current, r && r.ok ? r.list : []);
+        UIBridge.on('settings:changed', (s) => renderAdapters(s, r && r.ok ? r.list : []));
+    };
+
+    /* ---------- лог запросов ---------- */
+    const initQueryLog = () => {
+        const view = $('#qlView');
+        const info = $('#qlInfo');
+        let filter = '';
+        let timer = null;
+
+        const refresh = async () => {
+            if (!$('#setQueryLog')?.checked) return;
+            const r = await UIBridge.invoke('querylog:get', { filter });
+            if (view) view.textContent = r.lines.length ? r.lines.join('\n') : 'Лог пуст';
+            if (info) info.textContent = `${r.total} записей`;
+        };
+
+        $('#setQueryLog')?.addEventListener('change', (e) => {
+            if (e.target.checked) { refresh(); if (!timer) timer = setInterval(refresh, 2000); }
+            else if (timer) { clearInterval(timer); timer = null; view.textContent = 'Лог пуст'; info.textContent = ''; }
+        });
+        $('#qlRefreshBtn')?.addEventListener('click', refresh);
+        $('#qlClearBtn')?.addEventListener('click', async () => {
+            UIBridge.send('querylog:clear');
+            setTimeout(refresh, 200);
+        });
+        $('#qlFilter')?.addEventListener('input', (e) => {
+            filter = e.target.value.trim();
+            clearTimeout(initQueryLog._t);
+            initQueryLog._t = setTimeout(refresh, 300);
+        });
     };
 
     const initModules = async () => {
@@ -170,6 +337,9 @@
         initModules();
         initSettings();
         initAbout();
+        initResolvers();
+        initAdapters();
+        initQueryLog();
         setStatus('Готов к работе');
         console.log('Invis UI запущен');
     };

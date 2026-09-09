@@ -76,6 +76,30 @@
         </section>
 
         <section class="fields-section">
+            <h3>DNS-резольверы</h3>
+
+            <label class="check-row">
+                <input type="checkbox" id="setDnscryptAuto"> Авто — самые быстрые
+            </label>
+
+            <div id="resolverControls" class="is-hidden">
+                <input type="text" class="text-input" id="resolverSearch" placeholder="Поиск резольвера…" spellcheck="false">
+                <div class="btn-row" style="margin-top:8px">
+                    <label class="check-row"><input type="checkbox" id="fltRequireDnssec">DNSSEC</label>
+                    <label class="check-row"><input type="checkbox" id="fltRequireNolog">Без логов</label>
+                    <label class="check-row"><input type="checkbox" id="fltRequireNofilter">Без фильтров</label>
+                    <label class="check-row"><input type="checkbox" id="fltDohProto">DoH</label>
+                    <label class="check-row"><input type="checkbox" id="fltDnscryptProto">DNSCrypt</label>
+                </div>
+                <div class="simple-list" id="resolverList"></div>
+                <div class="hint" id="resolverInfo">Загрузка списка…</div>
+            </div>
+
+            <div class="settings-subtitle">Резервные (незашифрованные) резольверы</div>
+            <input type="text" class="text-input" id="setBootstrap" placeholder="9.9.9.9:53, 8.8.8.8:53" spellcheck="false">
+        </section>
+
+        <section class="fields-section">
             <h3>Настройки</h3>
 
             <label class="check-row">
@@ -89,6 +113,16 @@
                 <span class="hint">(порт 53, нужны права администратора)</span>
             </label>
 
+            <div id="dnsToggles" class="btn-row" style="margin:6px 0 2px">
+                <label class="check-row"><input type="checkbox" id="setCache"> DNS-кэш</label>
+                <label class="check-row"><input type="checkbox" id="setBlockIpv6"> Блокировать IPv6</label>
+                <label class="check-row"><input type="checkbox" id="setForceTcp"> Только TCP</label>
+                <label class="check-row"><input type="checkbox" id="setLanAccess"> Доступ из LAN</label>
+            </div>
+
+            <div class="settings-subtitle">Адаптеры перехвата DNS <span class="hint">(пусто = все физические)</span></div>
+            <div class="btn-row" id="adapterList"><span class="hint">—</span></div>
+
             <div class="settings-subtitle">Автозапуск модулей при старте Invis</div>
             <div class="btn-row">
                 <label class="check-row"><input type="checkbox" id="setAutoDnscrypt"> DNSCrypt</label>
@@ -100,6 +134,19 @@
         <section class="fields-section">
             <h3>О программе</h3>
             <div class="about-text" id="aboutText">Загрузка…</div>
+        </section>
+
+        <section class="fields-section">
+            <h3>Лог запросов DNS</h3>
+            <label class="check-row">
+                <input type="checkbox" id="setQueryLog"> Писать лог запросов
+            </label>
+            <div class="btn-row">
+                <button class="mini-btn" id="qlRefreshBtn" data-cursor-text="⟳">Обновить</button>
+                <button class="mini-btn ghost" id="qlClearBtn" data-cursor-text="✕">Очистить</button>
+                <input type="text" class="text-input grow" id="qlFilter" placeholder="Фильтр…" spellcheck="false" style="flex:1">
+            </div>
+            <div class="log-view" id="qlView" style="height:180px">Лог пуст</div>
         </section>
     </main>
 

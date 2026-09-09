@@ -11,7 +11,15 @@ const WAIT = Number(process.argv[3]) || 2500;
 ipcMain.handle('settings:get', () => ({
     launchWithWindows: false,
     closeToTray: true,
+    systemDns: false,
+    systemDnsAdapters: [],
     autostart: { dnscrypt: true, tor: true, i2p: false },
+    dnscrypt: {
+        autoMode: true, servers: [], requireDnssec: false, requireNolog: true,
+        requireNofilter: true, dnscryptProto: true, dohProto: true, cache: true,
+        blockIpv6: false, forceTcp: false, lanAccess: false,
+        bootstrap: ['9.9.9.9:53', '8.8.8.8:53'], queryLog: false,
+    },
 }));
 ipcMain.handle('modules:status', () => ({
     dnscrypt: { state: 'on', status: 'работает' },
@@ -24,6 +32,9 @@ ipcMain.handle('app:info', () => ({
     daemons: { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' },
     systemDnsActive: false,
 }));
+ipcMain.handle('resolvers:list', () => ({ ok: false, error: 'демо' }));
+ipcMain.handle('adapters:list', () => ({ ok: true, list: ['Беспроводная сеть'] }));
+ipcMain.handle('querylog:get', () => ({ lines: [], total: 0 }));
 
 app.whenReady().then(async () => {
     const win = new BrowserWindow({
