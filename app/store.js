@@ -57,10 +57,11 @@ function storeFile() {
 
 function deepMerge(base, patch) {
     for (const [key, value] of Object.entries(patch || {})) {
+        if (!(key in base)) continue;                      // неизвестные ключи отбрасываем
         if (value && typeof value === 'object' && !Array.isArray(value)
                 && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
-            deepMerge(base[key], value);
-        } else if (key in base) {
+            deepMerge(base[key], value);                   // объекты — глубоко
+        } else if (typeof value === typeof base[key]) {    // скаляры — только при совпадении типов
             base[key] = value;
         }
     }

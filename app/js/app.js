@@ -108,10 +108,14 @@
 
         for (const [key, id] of Object.entries(SETTINGS_IDS)) {
             document.getElementById(id)?.addEventListener('change', (e) => {
+                // путь любой глубины: 'a.b.c' -> { a: { b: { c: value } } }
                 const patch = {};
+                let node = patch;
                 const parts = key.split('.');
-                if (parts.length === 1) patch[parts[0]] = e.target.checked;
-                else patch[parts[0]] = { [parts[1]]: e.target.checked };
+                parts.forEach((part, i) => {
+                    if (i === parts.length - 1) node[part] = e.target.checked;
+                    else node = node[part] = {};
+                });
                 UIBridge.invoke('settings:set', patch);
                 if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });

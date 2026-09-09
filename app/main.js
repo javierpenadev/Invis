@@ -31,6 +31,7 @@ let configDirGlobal = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
 let newIpTimer = null;         // авто-смена IP Tor
 let cleanupDone = false;       // очистка перед выходом выполнена
+const startupWarnings = [];   // предупреждения для UI после создания окна
 let proxyApplied = false;      // системный прокси направлен на Tor
 
 const TITLE = 'Invis';
@@ -61,19 +62,15 @@ function onReady() {
         console.warn('[Invis] Системный прокси восстановлен после сбоя');
     }
 
-    /* Перехват системного DNS, включённый в настройках */
+    /* Перехват системного DNS, включённый в настройках.
+     * Настройку не сбрасываем — пользовательское решение сохраняется,
+     * проблемы сообщаем предупреждением. */
     if (settings.systemDns) {
         if (netmode.isElevated()) {
             const r = applySystemDns();
-            if (!r.ok) {
-                settings.systemDns = false;
-                store.save(settings);
-                console.warn('[Invis] Системный DNS не включён:', r.error);
-            }
+            if (!r.ok) startupWarnings.push(`Перехват DNS не применён: ${r.error}`);
         } else {
-            settings.systemDns = false;
-            store.save(settings);
-            console.warn('[Invis] systemDns включён, но запуск выполнен без прав администратора — режим отключён');
+            startupWarnings.push('Перехват DNS включён в настройках, но Invis запущен без прав администратора — запустите от администратора или выключите галку.');
         }
     }
 
@@ -125,6 +122,10 @@ function onReady() {
     if (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR) {
         try { fs.unlinkSync(path.join(path.dirname(process.execPath), 'Invis.exe.old')); } catch (e) { /* нет файла */ }
     }
+
+    startupWarnings.forEach((w, i) => {
+        setTimeout(() => sendToRenderer('modules:event', { text: w }), 1500 + i * 1200);
+    });
 
     /* Автозапуск модулей согласно настройкам */
     if (!process.env.INVIS_NO_AUTOSTART) {
