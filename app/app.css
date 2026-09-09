@@ -155,3 +155,18 @@ input[type="checkbox"]:checked::after {
 .resolver-row:hover { background: #2a2a3c; }
 .resolver-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resolver-props { flex: 0 0 auto; font-size: 11px; letter-spacing: .2px; }
+
+/* ---------- все текстовые инпуты и textarea — в стиле проекта ---------- */
+input[type="text"], input[type="number"], textarea {
+    background: #1e1e2f; border: 1px solid #3f3f5a; border-radius: 12px;
+    padding: 10px 12px; color: #fff; font-size: 14px; outline: none; font-family: inherit;
+    transition: border-color .18s ease, box-shadow .18s ease;
+}
+input[type="text"]:hover, input[type="number"]:hover, textarea:hover { border-color: #58587b; }
+input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+    border-color: #4f4fef; box-shadow: 0 0 0 3px rgba(79,79,239,.16);
+}
+input[type="text"]::placeholder, input[type="number"]::placeholder, textarea::placeholder { color: #7c7c99; }
+textarea.text-input { resize: vertical; min-height: 84px; font-family: Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.5; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

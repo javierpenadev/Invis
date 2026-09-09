@@ -135,6 +135,7 @@
         /* подпись кнопки Пуск/Стоп в строке модуля */
         const btn = document.querySelector(`.module-toggle[data-module="${name}"]`);
         if (btn) btn.textContent = (state === 'on' || state === 'busy') ? 'Стоп' : 'Пуск';
+        updateModuleButtons();
         updateAggregate();
     };
 
@@ -145,6 +146,30 @@
         if (!active.length) { InvisUI.setStatus('Готов к работе'); return; }
         const parts = active.map(([n]) => `${NAMES[n]} ${statusText[n] || DEFAULT_STATUS[moduleStates[n]]}`);
         InvisUI.setStatus(parts.join(' · '));
+    };
+
+    /* Кнопки Пуск/Стоп: текст и доступность по состоянию модулей */
+    const updateModuleButtons = () => {
+        const start = $('#startAllBtn'), stop = $('#stopAllBtn');
+        if (!start || !stop) return;
+        const states = Object.values(moduleStates);
+        const busy = states.includes('busy');
+        const running = states.filter((s) => s === 'on').length;
+        const allOn = running === states.length;
+        const allOff = states.every((s) => s === 'off');
+        if (busy) {
+            start.textContent = '⏳ Запуск…'; start.disabled = true;
+            stop.textContent = 'Остановить'; stop.disabled = false;
+        } else if (allOn) {
+            start.textContent = '✓ Запущено'; start.disabled = true;
+            stop.textContent = 'Остановить'; stop.disabled = false;
+        } else if (allOff) {
+            start.textContent = '⚡ Запустить всё'; start.disabled = false;
+            stop.textContent = 'Остановлено'; stop.disabled = true;
+        } else {
+            start.textContent = '⚡ Запустить всё'; start.disabled = false;
+            stop.textContent = 'Остановить'; stop.disabled = false;
+        }
     };
 
     /* ---------- резольверы ---------- */
@@ -347,6 +372,75 @@
         let saved = 'modules';
         try { saved = localStorage.getItem('invis-tab') || 'modules'; } catch (e) { /* ignore */ }
         activate(document.querySelector(`.tab-page[data-page="${saved}"]`) ? saved : 'modules');
+    };
+
+    /* ---------- Tor: мосты, NEWNYM, диагностика ---------- */
+    const syncTorBlock = (s) => {
+        const on = Boolean(s?.tor?.useBridges);
+        $('#bridgesBlock')?.classList.toggle('is-hidden', !on);
+        const ta = $('#setBridges');
+        if (ta && document.activeElement !== ta) ta.value = s?.tor?.bridgesText || '';
+        const mins = $('#setNewIpMinutes');
+        if (mins && document.activeElement !== mins) mins.value = s?.tor?.newIpMinutes || 0;
+    };
+
+    const initTor = async () => {
+        const current = await UIBridge.invoke('settings:get');
+        if (current) syncTorBlock(current);
+        UIBridge.on('settings:changed', syncTorBlock);
+
+        $('#setBridges')?.addEventListener('change', (e) => {
+            UIBridge.invoke('settings:set', { tor: { bridgesText: e.target.value } });
+        });
+        $('#fetchBridgesBtn')?.addEventListener('click', async () => {
+            const btn = $('#fetchBridgesBtn');
+            UIHelpers.setButtonWaiting(btn, true);
+            const ta = $('#setBridges');
+            const r = await UIBridge.invoke('bridges:fetch', 'obfs4');
+            UIHelpers.setButtonWaiting(btn, false);
+            if (!r || !r.ok) {
+                TemplateUI.setStatus(r?.error || 'Не удалось получить мосты', { error: true });
+                return;
+            }
+            if (ta) {
+                const existing = ta.value.trim().split(/\r?\n/).filter(Boolean);
+                const merged = [...new Set([...existing, ...r.lines])].join('\n');
+                ta.value = merged;
+                UIBridge.invoke('settings:set', { tor: { bridgesText: merged } });
+            }
+            TemplateUI.setStatus(`Получено мостов: ${r.lines.length}`);
+        });
+        $('#setNewIpMinutes')?.addEventListener('change', (e) => {
+            const n = Math.max(0, Math.round(Number(e.target.value) || 0));
+            e.target.value = n;
+            UIBridge.invoke('settings:set', { tor: { newIpMinutes: n } });
+        });
+        $('#torNewIpBtn')?.addEventListener('click', () => {
+            TemplateUI.setStatus('Tor: запрашиваем новый IP…');
+            UIBridge.send('tor:newip');
+        });
+        UIBridge.on('modules:event', ({ text }) => TemplateUI.setStatus(text));
+    };
+
+    const initDiag = () => {
+        const box = $('#diagBox');
+        $('#diagBtn')?.addEventListener('click', async () => {
+            if (box) { box.classList.remove('is-hidden'); box.textContent = 'Проверяю…'; }
+            const r = await UIBridge.invoke('diag:run');
+            if (box && r) {
+                const line = (label, v) =>
+                    `<span class="${v.ok ? 'log-info' : 'log-error'}">${v.ok ? '✓' : '✗'} ${label}</span>: ${StringUtils.escape(v.detail || '')}`;
+                box.innerHTML = [
+                    line('DNSCrypt', r.dns),
+                    line('Tor', r.tor),
+                    line('I2P', r.i2p),
+                    line('Ваш реальный IP', r.realIp),
+                    line('IP через Tor', r.torIp),
+                ].join('<br>');
+            }
+        });
+        $('#i2pConsoleBtn')?.addEventListener('click', () => UIBridge.send('open:console-i2p'));
+        $('#logsFolderBtn')?.addEventListener('click', () => UIBridge.send('open:logs'));
     };
 
     const init = () => {

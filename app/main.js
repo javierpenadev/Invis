@@ -208,8 +208,8 @@ function relaunchElevated() {
     setTimeout(() => app.quit(), 300);
 }
 
-/* Перегенерация конфигов (порт dnscrypt зависит от режима DNS) + мягкий рестарт */
-function rebuildConfigsAndRestartDnscrypt() {
+/* Перегенерация конфигов (порт dnscrypt зависит от режима DNS) */
+function rebuildConfigs() {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
     const base = store.baseDir();
     buildConfigs({
@@ -224,6 +224,10 @@ function rebuildConfigsAndRestartDnscrypt() {
         torCfg: settings.tor,
     });
     supervisor?.setDnscryptPort(listen);
+}
+
+function rebuildConfigsAndRestartDnscrypt() {
+    rebuildConfigs();
     if (supervisor?.isRunning('dnscrypt')) {
         supervisor.stop('dnscrypt').then(() => supervisor.start('dnscrypt'));
     }
@@ -251,22 +255,24 @@ function syncLanFirewall(enabled) {
     }
 }
 
-/* Нельзя загасить dnscrypt, пока он обслуживает системный DNS */
-function guardDnscryptStop(name) {
-    if (name === 'dnscrypt' && dnsApplied && supervisor?.isRunning('dnscrypt')) {
-        sendToRenderer('modules:event', {
-            text: 'DNSCrypt обслуживает системный DNS — сначала отключите «Перехват системного DNS».',
-        });
-        return true;
+/* Остановка dnscrypt при активном перехвате: сначала вернуть системный DNS */
+async function disableSystemDns(stopDnscryptAfter) {
+    if (dnsApplied) restoreSystemDns();
+    settings = store.deepMerge(store.load(), { systemDns: false });
+    store.save(settings);
+    rebuildConfigs();
+    sendToRenderer('settings:changed', settings);
+    if (stopDnscryptAfter && supervisor?.isRunning('dnscrypt')) {
+        await supervisor.stop('dnscrypt');
     }
-    return false;
 }
 
 function stopAllModules() {
-    if (!supervisor) return;
-    const names = supervisor.list.filter((n) => !(dnsApplied && n === 'dnscrypt'));
-    if (dnsApplied) sendToRenderer('modules:event', { text: 'DNSCrypt оставлен активным: обслуживает системный DNS' });
-    names.forEach((n) => supervisor.stop(n));
+    if (!supervisor) return Promise.resolve();
+    return (async () => {
+        if (dnsApplied) await disableSystemDns(false); // вернуть адаптеры, затем гасить всё
+        await Promise.all(supervisor.list.map((n) => supervisor.stop(n)));
+    })();
 }
 
 /* ---------- окно ---------- */
@@ -541,7 +547,8 @@ ipcMain.on('modules:stop-all', () => stopAllModules());
 ipcMain.on('modules:toggle', (_e, name) => {
     if (!supervisor || !supervisor.specs[name]) return;
     if (supervisor.isRunning(name)) {
-        if (guardDnscryptStop(name)) return;
+        /* Остановка dnscrypt при перехвате: сначала вернуть системный DNS */
+        if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
         supervisor.stop(name);
     } else {
         supervisor.start(name);
@@ -549,7 +556,7 @@ ipcMain.on('modules:toggle', (_e, name) => {
 });
 ipcMain.on('modules:start', (_e, name) => supervisor?.start(name));
 ipcMain.on('modules:stop', (_e, name) => {
-    if (guardDnscryptStop(name)) return;
+    if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
     supervisor?.stop(name);
 });
 
@@ -591,18 +598,23 @@ ipcMain.handle('adapters:list', () => {
 
 /* ---------- IPC: диагностика, Tor NEWNYM, мосты, ярлыки ---------- */
 const { shell } = require('electron');
+const ipinfo = require('./lib/ipinfo');
 
 ipcMain.handle('diag:run', async () => {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
     const res = { dns: { ok: false, detail: 'не запущен' }, tor: { ok: false, detail: 'не запущен' }, i2p: { ok: false, detail: 'не запущен' } };
-    if (supervisor?.isRunning('dnscrypt')) res.dns = await diag.dnsQueryTcp(listen);
+    const jobs = [];
+    if (supervisor?.isRunning('dnscrypt')) jobs.push(diag.dnsQueryTcp(listen).then((v) => { res.dns = { ...v, detail: `${v.detail} · порт ${listen}` }; }));
     if (supervisor?.isRunning('tor')) {
-        const est = await torctl.circuitEstablished(path.join(store.baseDir(), 'data', 'tor'));
-        res.tor = { ok: est, detail: est ? 'цепочка установлена' : 'цепочка ещё строится' };
+        jobs.push(ipinfo.getTorIp(PORTS.torSocks)
+            .then((v) => { res.tor = { ok: v.isTor, detail: `${v.ip} (выход Tor)` }; })
+            .catch((e) => { res.tor = { ok: false, detail: e.message }; }));
+    } else {
+        res.tor = { ok: false, detail: 'не запущен' };
     }
-    if (supervisor?.isRunning('i2p')) {
-        res.i2p = { ok: await diag.probeTcp(PORTS.i2pHttp), detail: 'прокси 4444' };
-    }
+    if (supervisor?.isRunning('i2p')) jobs.push(diag.probeTcp(PORTS.i2pHttp).then((ok) => { res.i2p = { ok, detail: 'прокси 4444' }; }));
+    jobs.push(ipinfo.getDirectIp().then((ip) => { res.realIp = { ok: true, detail: ip }; }).catch((e) => { res.realIp = { ok: false, detail: e.message }; }));
+    await Promise.all(jobs);
     sendToRenderer('diag:result', res);
     return res;
 });
@@ -631,11 +643,21 @@ ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => 
     return res.canceled ? null : res.filePath;
 });
 
-app.on('before-quit', () => {
+let cleanupDone = false;
+app.on('before-quit', (e) => {
     quitting = true;
-    /* Гасим демоны и возвращаем системный DNS, чтобы не оставлять поломок */
-    supervisor?.stopAll();
-    if (dnsApplied) restoreSystemDns();
+    if (cleanupDone) return;
+    /* Блокирующая очистка: гасим демоны и возвращаем системный DNS,
+     * и только затем выходим (иначе процессы-«зомби» и сломанный DNS) */
+    e.preventDefault();
+    const forceExit = setTimeout(() => { cleanupDone = true; app.exit(0); }, 8000);
+    (async () => {
+        try { await supervisor?.stopAll(); } catch (err) { /* гасим любой ценой */ }
+        if (dnsApplied) restoreSystemDns();
+        clearTimeout(forceExit);
+        cleanupDone = true;
+        app.exit(0);
+    })();
 });
 
 app.on('window-all-closed', () => {
