@@ -7,3 +7,6 @@ release/
 /downloads/
 *.log
 app/tools/*.png
+.rel*.json
+*.png
+!app/assets/**
