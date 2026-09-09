@@ -17,6 +17,7 @@ const diag = require('./lib/diag');
 const blocklists = require('./lib/blocklists');
 const bridges = require('./lib/bridges');
 const updater = require('./lib/updater');
+const proxy = require('./lib/proxy');
 
 let win = null;
 let tray = null;
@@ -30,6 +31,7 @@ let configDirGlobal = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
 let newIpTimer = null;         // авто-смена IP Tor
 let cleanupDone = false;       // очистка перед выходом выполнена
+let proxyApplied = false;      // системный прокси направлен на Tor
 
 const TITLE = 'Invis';
 const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
@@ -52,6 +54,12 @@ function onReady() {
 
     /* Восстановление системного DNS, если прошлый сеанс завершился некорректно */
     recoverSystemDnsIfNeeded();
+
+    /* Восстановление системного прокси после некорректного завершения */
+    if (fs.existsSync(proxyBackupFile())) {
+        restoreSystemProxy();
+        console.warn('[Invis] Системный прокси восстановлен после сбоя');
+    }
 
     /* Перехват системного DNS, включённый в настройках */
     if (settings.systemDns) {
@@ -90,6 +98,16 @@ function onReady() {
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
+            /* Системный прокси живёт вместе с Tor */
+            if (payload.name === 'tor') {
+                if ((payload.state === 'off' || payload.state === 'error') && proxyApplied) {
+                    restoreSystemProxy();
+                    sendToRenderer('modules:event', { text: 'Tor остановлен — системный прокси отключён' });
+                } else if (payload.state === 'on' && settings.systemProxy && !proxyApplied) {
+                    const r = applySystemProxy();
+                    if (r.ok) sendToRenderer('modules:event', { text: 'Системный прокси направлен на Tor' });
+                }
+            }
         },
     });
 
@@ -291,6 +309,44 @@ function stopAllModules() {
     })();
 }
 
+/* ---------- системный прокси на Tor (WinINET) ---------- */
+const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');
+
+function applySystemProxy() {
+    if (proxyApplied) return { ok: true };
+    if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Сначала запустите Tor — прокси указывает на него.' };
+    const backup = proxy.readState();
+    fs.writeFileSync(proxyBackupFile(), JSON.stringify(backup, null, 2), 'utf8');
+    proxy.apply('127.0.0.1:9050', app.getPath('temp'));
+    proxyApplied = true;
+    netmodeLog('Системный прокси направлен на socks=127.0.0.1:9050. Прежние настройки: ' + JSON.stringify(backup));
+    return { ok: true };
+}
+
+function restoreSystemProxy() {
+    const backup = proxy.readState();
+    if (fs.existsSync(proxyBackupFile())) {
+        try {
+            const saved = JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'));
+            proxy.restore(saved, app.getPath('temp'));
+            netmodeLog('Системный прокси восстановлен: ' + JSON.stringify(saved));
+        } catch (e) {
+            netmodeLog(`ОШИБКА восстановления прокси: ${e.message}`);
+        }
+        try { fs.unlinkSync(proxyBackupFile()); } catch (e) { /* нет файла */ }
+    }
+    proxyApplied = false;
+}
+
+function stopAllModules() {
+    if (!supervisor) return Promise.resolve();
+    return (async () => {
+        if (dnsApplied) await disableSystemDns(false); // вернуть адаптеры, затем гасить всё
+        if (proxyApplied) restoreSystemProxy();        // вернуть системный прокси
+        await Promise.all(supervisor.list.map((n) => supervisor.stop(n)));
+    })();
+}
+
 /* ---------- окно ---------- */
 function createWindow() {
     win = new BrowserWindow({
@@ -427,6 +483,23 @@ function setSetting(patch) {
         && patch.dnscrypt.lanAccess !== Boolean(settings.dnscrypt?.lanAccess);
     const adaptersChanged = patch.systemDnsAdapters !== undefined
         && JSON.stringify(patch.systemDnsAdapters) !== JSON.stringify(settings.systemDnsAdapters);
+
+    /* Особый случай: системный прокси на Tor */
+    if (patch.systemProxy !== undefined && patch.systemProxy !== Boolean(settings.systemProxy)) {
+        const want = patch.systemProxy;
+        if (want) {
+            const r = applySystemProxy();
+            if (!r.ok) {
+                dialog.showMessageBox(win, {
+                    type: 'error', title: 'Invis',
+                    message: 'Не удалось включить системный прокси', detail: r.error,
+                });
+                patch = { ...patch, systemProxy: false };
+            }
+        } else {
+            restoreSystemProxy();
+        }
+    }
 
     /* Особый случай: перехват системного DNS */
     if (patch.systemDns !== undefined && patch.systemDns !== Boolean(settings.systemDns)) {
@@ -798,6 +871,7 @@ app.on('before-quit', (e) => {
     (async () => {
         try { await supervisor?.stopAll(); } catch (err) { /* гасим любой ценой */ }
         if (dnsApplied) restoreSystemDns();
+        if (proxyApplied) restoreSystemProxy();
         clearTimeout(forceExit);
         cleanupDone = true;
         app.exit(0);

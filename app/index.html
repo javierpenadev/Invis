@@ -66,6 +66,10 @@
                 <button class="mini-btn ghost" id="logsFolderBtn" data-cursor-text="▤">Папка логов</button>
             </div>
             <div class="log-view is-hidden" id="diagBox" style="height:130px"></div>
+            <div class="hint" style="margin-top:8px">
+                «IP через Tor» видят только приложения с прокси 127.0.0.1:9050. Чтобы браузер шёл через Tor —
+                включите «Системный прокси» в Настройках или задайте прокси в браузере.
+            </div>
 
             <div class="module-row" data-module="dnscrypt">
                 <span class="module-dot" id="dotDnscrypt"></span>
@@ -159,6 +163,12 @@
 
             <div class="settings-subtitle">Адаптеры перехвата DNS <span class="hint">(пусто = все физические)</span></div>
             <div class="btn-row" id="adapterList"><span class="hint">—</span></div>
+
+            <div class="settings-subtitle">Системный прокси</div>
+            <label class="check-row">
+                <input type="checkbox" id="setSystemProxy"> Направлять системный прокси на Tor
+                <span class="hint">(SOCKS5 127.0.0.1:9050; для Chrome/Edge и приложений с системным прокси)</span>
+            </label>
 
             <div class="settings-subtitle">Tor</div>
             <label class="check-row">

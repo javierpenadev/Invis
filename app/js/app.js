@@ -72,6 +72,7 @@
         launchWithWindows: 'setLaunchWithWindows',
         closeToTray: 'setCloseToTray',
         systemDns: 'setSystemDns',
+        systemProxy: 'setSystemProxy',
         autoUpdate: 'setAutoUpdate',
         'dnscrypt.autoMode': 'setDnscryptAuto',
         'dnscrypt.requireDnssec': 'fltRequireDnssec',
