@@ -83,7 +83,11 @@ function load() {
 
 function save(settings) {
     fs.mkdirSync(path.dirname(storeFile()), { recursive: true });
-    fs.writeFileSync(storeFile(), JSON.stringify(settings, null, 2), 'utf8');
+    /* Атомарная запись через tmp+rename: прямая перезапись могла ловить
+     * блокировку (антивирус) и настройка «не сохранялась» */
+    const tmp = storeFile() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
+    fs.renameSync(tmp, storeFile());
 }
 
 module.exports = { DEFAULTS, load, save, deepMerge, baseDir, getPath: storeFile };

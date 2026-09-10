@@ -389,7 +389,16 @@ function prepareDnsInterceptBeforeStart() {
 function startAllModules() {
     prepareDnsInterceptBeforeStart();
     supervisor?.startEnabled(settings.autostart);
-    if (settings.systemProxy && !supervisor.isRunning('tor')) supervisor.start('tor');
+    if (settings.systemProxy) {
+        /* Прокси живёт вместе с Tor. Раньше полагались только на событие
+         * tor 'on' — при гонке «остановил всё → сразу запустил всё» оно
+         * терялось и прокси не возвращался, хотя галка включена. */
+        if (!supervisor.isRunning('tor')) supervisor.start('tor');
+        if (supervisor.isRunning('tor')) {
+            const r = applySystemProxy();
+            if (r.ok) sendToRenderer('modules:event', { text: 'Системный прокси направлен на Tor' });
+        }
+    }
 }
 
 const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');

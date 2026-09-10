@@ -93,7 +93,15 @@ class DaemonSupervisor {
     start(name) {
         const st = this.state[name];
         const spec = this.specs[name];
-        if (!spec || st.proc) return;
+        if (!spec) return;
+        /* Рестарт сразу после «Остановить всё»: процесс ещё гаснет — раньше
+         * start() молча уходил в никуда и модуль не поднимался. Ставим в
+         * очередь за остановкой. */
+        if (st.stopPromise) {
+            st.stopPromise.then(() => this.start(name)).catch(() => {});
+            return;
+        }
+        if (st.proc) return;
         if (!fs.existsSync(spec.exe)) {
             this._set(name, 'error', 'бинарник не найден (npm run fetch-bins)');
             return;
