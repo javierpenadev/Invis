@@ -26,6 +26,7 @@ function refreshWininet(tempPath) {
     execFileSync('powershell',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
         { windowsHide: true, timeout: 15000, stdio: 'ignore' });
+    return true;
 }
 
 function regQueryValue(name) {
@@ -65,8 +66,8 @@ function apply(socksAddr, tempPath) {
     regSet('ProxyEnable', 'REG_DWORD', '1');
     regSet('ProxyServer', 'REG_SZ', `socks=${socksAddr}`);
     regDelete('AutoConfigURL'); // PAC перекрыл бы наши настройки
-    refreshWininet(tempPath);
-    return backup;
+    const refreshed = refreshWininet(tempPath);
+    return { backup, refreshed };
 }
 
 /* Вернуть сохранённые значения */

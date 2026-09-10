@@ -123,7 +123,10 @@
                 const ovText = OVERLAY_TEXT[key]
                     || (key.startsWith('dnscrypt.presets.') ? 'Загружаю блок-лист…' : null);
                 if (ovText) InvisUI.showOverlay(ovText, { hideOnState: true });
-                UIBridge.invoke('settings:set', patch);
+                UIBridge.invoke('settings:set', patch).catch((e) => {
+                    InvisUI.hideOverlay();
+                    InvisUI.setStatus(`Ошибка сохранения настройки: ${e.message || e}`, { error: true });
+                });
                 if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });
         }
@@ -138,14 +141,19 @@
 
     /* ---------- оверлей контента (долгие операции) ---------- */
     let overlayHideOnState = false;
+    let overlayTimer = null;
     const showOverlay = (text, opts = {}) => {
         const ov = $('#contentOverlay');
         if (!ov) return;
         $('#overlayText').textContent = text || 'Применяю…';
         ov.classList.remove('is-hidden');
         overlayHideOnState = Boolean(opts.hideOnState);
+        /* страховка: оверлей не может висеть вечно */
+        clearTimeout(overlayTimer);
+        overlayTimer = setTimeout(hideOverlay, 45000);
     };
     const hideOverlay = () => {
+        clearTimeout(overlayTimer);
         overlayHideOnState = false;
         $('#contentOverlay')?.classList.add('is-hidden');
     };
