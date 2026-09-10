@@ -45,9 +45,11 @@ const DEFAULTS = {
 
 let filePath = null;
 
-/* Базовый каталог данных: userData или каталог exe в портативном режиме */
+/* Базовый каталог данных: userData или каталог exe в портативном режиме.
+ * Портативность определяет либо INVIS_PORTABLE (вручную), либо
+ * PORTABLE_EXECUTABLE_DIR — её задаёт electron-builder в portable-сборке. */
 function baseDir() {
-    return app.isPackaged && process.env.INVIS_PORTABLE
+    return app.isPackaged && (process.env.INVIS_PORTABLE || process.env.PORTABLE_EXECUTABLE_DIR)
         ? path.dirname(process.execPath)
         : app.getPath('userData');
 }

@@ -94,8 +94,14 @@
         'autostart.i2p': 'setAutoI2p',
     };
 
+    /* Ключи с несохранённым патчем: рассылки settings:changed и ответы на свои
+     * же invoke не должны затирать чекбокс, который пользователь только что
+     * переключил (раньше быстрая смена двух галочек визуально сбрасывала вторую) */
+    const pendingKeys = new Set();
+
     const applySettingsToForm = (s) => {
         for (const [key, id] of Object.entries(SETTINGS_IDS)) {
+            if (pendingKeys.has(key)) continue;
             const value = key.split('.').reduce((acc, part) => acc?.[part], s);
             const input = document.getElementById(id);
             if (input && typeof value === 'boolean') input.checked = value;
@@ -123,10 +129,17 @@
                 const ovText = OVERLAY_TEXT[key]
                     || (key.startsWith('dnscrypt.presets.') ? 'Загружаю блок-лист…' : null);
                 if (ovText) InvisUI.showOverlay(ovText, { hideOnState: true });
-                UIBridge.invoke('settings:set', patch).catch((e) => {
-                    InvisUI.hideOverlay();
-                    InvisUI.setStatus(`Ошибка сохранения настройки: ${e.message || e}`, { error: true });
-                });
+                pendingKeys.add(key);
+                UIBridge.invoke('settings:set', patch)
+                    .then((s) => { if (s) applySettingsToForm(s); })
+                    .catch((err) => {
+                        InvisUI.hideOverlay();
+                        InvisUI.setStatus(`Ошибка сохранения настройки: ${err.message || err}`, { error: true });
+                    })
+                    .finally(() => {
+                        pendingKeys.delete(key);
+                        hideOverlayIfPending();
+                    });
                 if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });
         }
@@ -281,22 +294,14 @@
         if (info && !resolverState.loaded) info.textContent = r?.error || 'Список недоступен';
 
         $('#resolverSearch')?.addEventListener('input', renderResolverList);
-        for (const id of ['fltRequireDnssec', 'fltRequireNolog', 'fltRequireNofilter', 'fltDohProto', 'fltDnscryptProto']) {
+        /* Фильтры-галки — это настройки dnscrypt (require_*, протоколы, autoMode);
+         * их сохранение в main уже обслужено общими слушателями из initSettings,
+         * здесь только перерисовка списка и показ/скрытие панели выбора. */
+        for (const id of ['fltRequireDnssec', 'fltRequireNolog', 'fltRequireNofilter', 'fltDnscryptProto', 'fltDohProto']) {
             document.getElementById(id)?.addEventListener('change', renderResolverList);
-        }
-        /* фильтры-галки одновременно являются require_* настройками dnscrypt */
-        for (const [key, id] of [['dnscrypt.requireDnssec', 'fltRequireDnssec'],
-                                 ['dnscrypt.requireNolog', 'fltRequireNolog'],
-                                 ['dnscrypt.requireNofilter', 'fltRequireNofilter'],
-                                 ['dnscrypt.dnscryptProto', 'fltDnscryptProto'],
-                                 ['dnscrypt.dohProto', 'fltDohProto']]) {
-            document.getElementById(id)?.addEventListener('change', (e) => {
-                UIBridge.invoke('settings:set', { dnscrypt: { [key.split('.')[1]]: e.target.checked } });
-            });
         }
         $('#setDnscryptAuto')?.addEventListener('change', (e) => {
             $('#resolverControls')?.classList.toggle('is-hidden', e.target.checked);
-            UIBridge.invoke('settings:set', { dnscrypt: { autoMode: e.target.checked } });
         });
         $('#setBootstrap')?.addEventListener('change', (e) => {
             const list = e.target.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
@@ -335,23 +340,46 @@
     };
 
     /* ---------- лог запросов ---------- */
-    const initQueryLog = () => {
+    const initQueryLog = async () => {
         const view = $('#qlView');
         const info = $('#qlInfo');
         let filter = '';
         let timer = null;
+        /* Держим состояние сами: галочка из DOM заполняется асинхронно,
+         * и раньше при старте с уже включённым логом опрос не начинался вовсе */
+        let enabled = false;
+
+        const startPolling = () => {
+            refresh();
+            if (!timer) timer = setInterval(refresh, 2000);
+        };
+        const stopPolling = () => {
+            if (timer) { clearInterval(timer); timer = null; }
+            if (view) view.textContent = 'Лог пуст';
+            if (info) info.textContent = '';
+        };
 
         const refresh = async () => {
-            if (!$('#setQueryLog')?.checked) return;
-            const r = await UIBridge.invoke('querylog:get', { filter });
-            if (view) view.textContent = r.lines.length ? r.lines.join('\n') : 'Лог пуст';
-            if (info) info.textContent = `${r.total} записей`;
+            if (!enabled) return;
+            try {
+                const r = await UIBridge.invoke('querylog:get', { filter });
+                if (r && view) view.textContent = r.lines.length ? r.lines.join('\n') : 'Лог пуст';
+                if (r && info) info.textContent = `${r.total} записей`;
+            } catch (e) { /* файл недоступен — покажем на следующем тике */ }
         };
 
         $('#setQueryLog')?.addEventListener('change', (e) => {
-            if (e.target.checked) { refresh(); if (!timer) timer = setInterval(refresh, 2000); }
-            else if (timer) { clearInterval(timer); timer = null; view.textContent = 'Лог пуст'; info.textContent = ''; }
+            enabled = e.target.checked;
+            if (enabled) startPolling();
+            else stopPolling();
         });
+
+        /* Галочка включена в сохранённых настройках — опрашиваем сразу */
+        const saved = await UIBridge.invoke('settings:get');
+        if (saved?.dnscrypt?.queryLog) {
+            enabled = true;
+            startPolling();
+        }
         $('#qlRefreshBtn')?.addEventListener('click', refresh);
         $('#qlClearBtn')?.addEventListener('click', async () => {
             UIBridge.send('querylog:clear');

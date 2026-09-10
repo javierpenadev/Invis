@@ -39,11 +39,26 @@ const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
 const dnsBackupFile = () => path.join(store.baseDir(), 'dns-backup.json');
 
 /* ---------- единственный экземпляр ---------- */
-if (!app.requestSingleInstanceLock()) {
-    app.quit();
-} else {
+/* relaunchElevated стартует новый процесс, пока старый ещё завершается
+ * (блокирующая очистка демонов занимает секунды) — lock бывает занят.
+ * Даём новому экземпляру до 10 с на его освобождение. */
+function run() {
     app.on('second-instance', () => showWindow());
     app.whenReady().then(onReady);
+}
+if (app.requestSingleInstanceLock()) {
+    run();
+} else {
+    const startedAt = Date.now();
+    const retry = setInterval(() => {
+        if (app.requestSingleInstanceLock()) {
+            clearInterval(retry);
+            run();
+        } else if (Date.now() - startedAt > 10000) {
+            clearInterval(retry);
+            app.quit();
+        }
+    }, 250);
 }
 
 function onReady() {
@@ -110,6 +125,11 @@ function onReady() {
                     const r = applySystemProxy();
                     if (r.ok) sendToRenderer('modules:event', { text: 'Системный прокси направлен на Tor' });
                 }
+            } else if (payload.name === 'i2p' && payload.state === 'on') {
+                /* mingw-сборка i2pd сама создаёт иконку в трее (compile-time
+                 * USE_WIN32_APP) — в трее должен остаться только Invis */
+                hideI2pdTrayIcon();
+                setTimeout(hideI2pdTrayIcon, 3000); // страховка от гонки со стартом
             } else if (payload.name === 'dnscrypt'
                     && (payload.state === 'off' || payload.state === 'error') && dnsApplied) {
                 /* dnscrypt остановился/упал сам — адаптеры нельзя оставлять на 127.0.0.1 */
@@ -279,6 +299,43 @@ function rebuildConfigsAndRestartDnscrypt() {
     if (supervisor?.isRunning('dnscrypt')) {
         supervisor.stop('dnscrypt').then(() => supervisor.start('dnscrypt'));
     }
+}
+
+/* Родная иконка i2pd в трее создаётся безусловно (USE_WIN32_APP вшит на
+ * уровне сборки, опции отключения нет). В трее должен быть только Invis —
+ * находим скрытое окно i2pd и удаляем его иконку через Shell_NotifyIcon.
+ * Вернётся она только после перезапуска explorer (TaskbarCreated). */
+function hideI2pdTrayIcon() {
+    if (process.platform !== 'win32') return;
+    const ps = [
+        "$sig = @'",
+        '    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);',
+        '    [DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern bool Shell_NotifyIcon(uint msg, ref NID nid);',
+        '    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]',
+        '    public struct NID {',
+        '        public uint cbSize; public IntPtr hWnd; public uint uID; public uint uFlags; public IntPtr hIcon;',
+        '        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string szTip;',
+        '        public uint dwState; public uint dwStateMask;',
+        '        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=256)] public string szInfo;',
+        '        public uint uVersion;',
+        '        [MarshalAs(UnmanagedType.ByValTStr, SizeConst=64)] public string szInfoTitle;',
+        '        public uint dwInfoFlags; public Guid guidItem; public IntPtr hBalloonIcon;',
+        '    }',
+        "'@",
+        'Add-Type -MemberDefinition $sig -Name Win -Namespace Invis',
+        /* class+title: поиск только по классу на части систем возвращает 0 */
+        "$h = [Invis.Win]::FindWindowExW([IntPtr]::Zero, [IntPtr]::Zero, 'i2pd main window', 'i2pd')",
+        'if ($h -ne [IntPtr]::Zero) {',
+        '    $n = New-Object Invis.Win+NID',
+        '    $n.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf([type][Invis.Win+NID])',
+        '    $n.hWnd = $h; $n.uID = 2050',
+        '    [void][Invis.Win]::Shell_NotifyIcon(2, [ref]$n)',
+        '}',
+    ].join('\n');
+    try {
+        spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps],
+            { windowsHide: true, stdio: 'ignore' });
+    } catch (e) { netmodeLog(`Не удалось скрыть иконку i2pd: ${e.message}`); }
 }
 
 /* Firewall-правило для доступа к DNS из LAN (best-effort, нужен админ) */
@@ -579,7 +636,13 @@ function setSetting(patch) {
     /* Глубокий merge в дефолты — неизвестные ключи отбрасываются, вложенные
      * объекты (autostart, dnscrypt) не теряют соседние флаги при частичном патче */
     settings = store.deepMerge(store.load(), patch);
-    store.save(settings);
+    try {
+        store.save(settings);
+    } catch (e) {
+        /* Раньше ошибка записи тонула и выглядела как «настройки сбросились» */
+        sendToRenderer('modules:event', { text: `Не удалось сохранить настройки: ${e.message}` });
+        throw e; // рендерер покажет ошибку в статус-баре
+    }
     if (patch.launchWithWindows !== undefined) applyLaunchWithWindows();
     if (patch.autoUpdate) checkForUpdates(true);
 
@@ -694,17 +757,27 @@ ipcMain.handle('resolvers:list', () => {
     return readResolvers(configDirGlobal);
 });
 
+/* «Очистка» лога: query.log держит открытым dnscrypt, перезапись файла на
+ * Windows падает с EBUSY/EPERM — вместо этого помечаем смещение и не
+ * показываем байты до него. Файл не трогаем вовсе. */
+let queryLogOffset = 0;
+
 ipcMain.handle('querylog:get', (_e, { filter } = {}) => {
     const file = path.join(configDirGlobal || '', 'query.log');
     let content = '';
+    let start = 0;
     try {
         const fd = fs.openSync(file, 'r');
-        const size = fs.fstatSync(fd).size;
-        const start = Math.max(0, size - 128 * 1024);
-        const buf = Buffer.alloc(size - start);
-        fs.readSync(fd, buf, 0, buf.length, start);
-        fs.closeSync(fd);
-        content = buf.toString('utf8');
+        try {
+            const size = fs.fstatSync(fd).size;
+            if (size < queryLogOffset) queryLogOffset = 0; // файл пересоздан/усох
+            start = Math.max(queryLogOffset, size - 128 * 1024);
+            const buf = Buffer.alloc(size - start);
+            fs.readSync(fd, buf, 0, buf.length, start);
+            content = buf.toString('utf8');
+        } finally {
+            fs.closeSync(fd);
+        }
     } catch (e) {
         return { lines: [], total: 0 };
     }
@@ -716,7 +789,11 @@ ipcMain.handle('querylog:get', (_e, { filter } = {}) => {
 });
 
 ipcMain.on('querylog:clear', () => {
-    try { fs.writeFileSync(path.join(configDirGlobal || '', 'query.log'), '', 'utf8'); } catch (e) {}
+    try {
+        queryLogOffset = fs.statSync(path.join(configDirGlobal || '', 'query.log')).size;
+    } catch (e) {
+        queryLogOffset = 0;
+    }
 });
 
 ipcMain.handle('adapters:list', () => {
@@ -810,7 +887,12 @@ async function startUpdate() {
     }
     const cmdPath = path.join(app.getPath('temp'), 'invis-update.cmd');
     fs.writeFileSync(cmdPath, cmdLines.join(String.fromCharCode(13, 10)), 'utf8');
-    spawn('cmd', ['/c', cmdPath], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+    /* Тихий запуск: прямой spawn cmd моргал консольными окнами. wscript —
+     * GUI-процесс без консоли, а сам cmd выполняется со скрытым окном (стиль 0) */
+    const vbsPath = path.join(app.getPath('temp'), 'invis-update.vbs');
+    const vbs = 'CreateObject("WScript.Shell").Run """' + cmdPath.replace(/"/g, '""') + '""", 0, False';
+    fs.writeFileSync(vbsPath, '\ufeff' + vbs, 'utf16le'); // UTF-16 + BOM: temp может содержать не-ASCII
+    spawn('wscript', ['//B', vbsPath], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
     quitting = true;
     netmodeLog(`Обновление на v${updateState.version}: файл скачан, приложение перезапустится через установку`);
     setTimeout(() => app.quit(), 300);

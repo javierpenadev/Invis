@@ -192,12 +192,21 @@ class DaemonSupervisor {
     stop(name) {
         const st = this.state[name];
         if (!st.proc) { this._set(name, 'off', 'остановлен'); return Promise.resolve(); }
+        if (st.stopPromise) return st.stopPromise;
         st.stopping = true;
         this._set(name, 'busy', 'остановка…');
-        return new Promise((resolve) => {
+        const proc = st.proc;
+        st.stopPromise = new Promise((resolve) => {
+            /* Резолвимся по 'exit', а не по завершению taskkill: 'exit' прилетает
+             * позже, и ранний start() молча натыкался на ещё живый st.proc */
+            const done = () => resolve();
+            proc.once('exit', done);
+            proc.once('error', done);
             /* /T — дерево процессов, /F — форсированно */
-            execFile('taskkill', ['/pid', String(st.proc.pid), '/T', '/F'], { windowsHide: true }, () => resolve());
-        });
+            execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {});
+            setTimeout(done, 5000); // страховка, если 'exit' так и не придёт
+        }).finally(() => { st.stopPromise = null; });
+        return st.stopPromise;
     }
 
     startEnabled(autostart) {
