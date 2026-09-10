@@ -397,7 +397,21 @@ const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');
 function applySystemProxy() {
     if (proxyApplied) return { ok: true };
     if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Сначала запустите Tor — прокси указывает на него.' };
-    const backup = proxy.readState();
+    /* Не бэкапим собственный отпечаток: если прошлый сеанс завершился без
+     * восстановления и в реестре уже наш socks-прокси, «бэкап» такого
+     * состояния при восстановлении возвращал прокси Invis вместо
+     * пользовательских настроек. Бэкапим «прокси был выключен». */
+    const ours = proxy.isOursActive();
+    let backupValid = false;
+    try {
+        const saved = JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'));
+        backupValid = Boolean(saved) && saved.proxyServer !== 'socks=127.0.0.1:9050';
+    } catch (e) { /* бэкапа нет или битый */ }
+    const backup = ours && backupValid
+        ? JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'))
+        : (ours
+            ? { proxyEnable: '0x0', proxyServer: null, proxyOverride: null, autoConfigUrl: null }
+            : proxy.readState());
     fs.writeFileSync(proxyBackupFile(), JSON.stringify(backup, null, 2), 'utf8');
     proxy.apply('127.0.0.1:9050', app.getPath('temp'));
     proxyApplied = true;
@@ -409,8 +423,11 @@ function restoreSystemProxy() {
     if (fs.existsSync(proxyBackupFile())) {
         try {
             const saved = JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'));
-            proxy.restore(saved, app.getPath('temp'));
-            netmodeLog('Системный прокси восстановлен: ' + JSON.stringify(saved));
+            /* Отравленный бэкап (наш собственный socks) восстанавливать нельзя —
+             * это вернуло бы прокси Invis; считаем, что до нас прокси был выключен */
+            const poisoned = Boolean(saved) && saved.proxyServer === 'socks=127.0.0.1:9050';
+            proxy.restore(poisoned ? null : saved, app.getPath('temp'));
+            netmodeLog('Системный прокси восстановлен: ' + JSON.stringify(poisoned ? null : saved));
         } catch (e) {
             netmodeLog(`ОШИБКА восстановления прокси: ${e.message}`);
         }
@@ -581,7 +598,9 @@ function setSetting(patch) {
                     type: 'error', title: 'Invis',
                     message: 'Не удалось включить системный прокси', detail: r.error,
                 });
-                patch = { ...patch, systemProxy: false };
+                /* Галку не сбрасываем — это намерение: прокси применится сам,
+                 * когда Tor поднимется (onState tor 'on'). Раньше здесь
+                 * сохранялся systemProxy:false и галка «снималась сама». */
             } else if (startedTor) {
                 sendToRenderer('modules:event', {
                     text: 'Прокси включён, Tor запускается — трафик пойдёт через него, как только Tor подключится',
