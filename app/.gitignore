@@ -2,3 +2,5 @@ node_modules/
 release/
 bin/
 downloads/
+nul
+app/nul

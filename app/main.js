@@ -302,15 +302,6 @@ async function disableSystemDns(stopDnscryptAfter) {
     }
 }
 
-function stopAllModules() {
-    if (!supervisor) return Promise.resolve();
-    return (async () => {
-        if (dnsApplied) await disableSystemDns(false); // вернуть адаптеры, затем гасить всё
-        await Promise.all(supervisor.list.map((n) => supervisor.stop(n)));
-    })();
-}
-
-/* ---------- системный прокси на Tor (WinINET) ---------- */
 const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');
 
 function applySystemProxy() {
@@ -325,7 +316,6 @@ function applySystemProxy() {
 }
 
 function restoreSystemProxy() {
-    const backup = proxy.readState();
     if (fs.existsSync(proxyBackupFile())) {
         try {
             const saved = JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'));
