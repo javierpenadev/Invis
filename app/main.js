@@ -146,7 +146,7 @@ function onReady() {
 
     /* Авто-обновление: первая проверка через 20 с, далее раз в 4 часа */
     if (!process.env.INVIS_NO_UPDATE) {
-        setTimeout(() => checkForUpdates(), 20000);
+        setTimeout(() => checkForUpdates(true), 20000); // при старте — всегда, даже с выключенным автообновлением
         setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
     }
     /* мусор от прошлых обновлений portable-версии */
@@ -735,7 +735,7 @@ function scheduleNewIp() {
     newIpTimer = setInterval(async () => {
         if (!supervisor?.isRunning('tor')) return;
         const r = await torctl.newIp(path.join(store.baseDir(), 'data', 'tor'));
-        sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка (новый IP)' : `Tor NEWNYM: ${r.detail}` });
+        sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка — новый IP получат НОВЫЕ соединения; открытые вкладки могут показывать старый IP до обновления страницы (F5)' : `Tor NEWNYM: ${r.detail}` });
     }, minutes * 60000);
 }
 
@@ -996,7 +996,7 @@ ipcMain.on('tor:newip', async () => {
         return;
     }
     const r = await torctl.newIp(path.join(store.baseDir(), 'data', 'tor'));
-    sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка (новый IP)' : `Tor NEWNYM: ${r.detail}` });
+    sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка — новый IP получат НОВЫЕ соединения; открытые вкладки могут показывать старый IP до обновления страницы (F5)' : `Tor NEWNYM: ${r.detail}` });
 });
 
 ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(transport || 'obfs4'));

@@ -4,6 +4,7 @@
  * Не зависит от Electron (tempPath передаётся параметром).
  */
 const fs = require('fs');
+const path = require('path');
 const { execFileSync } = require('child_process');
 
 const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
