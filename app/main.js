@@ -60,6 +60,11 @@ function onReady() {
     if (fs.existsSync(proxyBackupFile())) {
         restoreSystemProxy();
         console.warn('[Invis] Системный прокси восстановлен после сбоя');
+    } else if (proxy.isOursActive()) {
+        /* Бэкапа нет, а наш прокси в реестре висит (процесс убили) — снимаем,
+         * иначе весь трафик системы упирается в мёртвый SOCKS 9050 */
+        proxy.restore(null, app.getPath('temp'));
+        netmodeLog('Обнаружен включённый прокси Invis без бэкапа — сброшен');
     }
 
     /* Перехват системного DNS, включённый в настройках.
@@ -95,15 +100,21 @@ function onReady() {
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
-            /* Системный прокси живёт вместе с Tor */
+            /* Системный прокси живёт вместе с Tor: галка-настройка сохраняется,
+             * снимается/возвращается только эффект */
             if (payload.name === 'tor') {
                 if ((payload.state === 'off' || payload.state === 'error') && proxyApplied) {
                     restoreSystemProxy();
-                    sendToRenderer('modules:event', { text: 'Tor остановлен — системный прокси отключён' });
+                    sendToRenderer('modules:event', { text: 'Tor остановлен — системный прокси снят (галка сохранена)' });
                 } else if (payload.state === 'on' && settings.systemProxy && !proxyApplied) {
                     const r = applySystemProxy();
                     if (r.ok) sendToRenderer('modules:event', { text: 'Системный прокси направлен на Tor' });
                 }
+            } else if (payload.name === 'dnscrypt'
+                    && (payload.state === 'off' || payload.state === 'error') && dnsApplied) {
+                /* dnscrypt остановился/упал сам — адаптеры нельзя оставлять на 127.0.0.1 */
+                disableSystemDns(false);
+                sendToRenderer('modules:event', { text: 'DNSCrypt остановлен — системный DNS восстановлен (галка сохранена)' });
             }
         },
     });
@@ -130,6 +141,8 @@ function onReady() {
     /* Автозапуск модулей согласно настройкам */
     if (!process.env.INVIS_NO_AUTOSTART) {
         const started = supervisor.startEnabled(settings.autostart);
+        /* Системный прокси живёт вместе с Tor: если галка включена, Tor нужен всегда */
+        if (settings.systemProxy && !supervisor.isRunning('tor')) supervisor.start('tor');
         if (started.length) console.log(`[Invis] Автозапуск модулей: ${started.join(', ')}`);
     }
 }
@@ -290,16 +303,36 @@ function syncLanFirewall(enabled) {
     }
 }
 
-/* Остановка dnscrypt при активном перехвате: сначала вернуть системный DNS */
+/* Снять перехват DNS, сохранив галку как намерение: эффект вернётся при
+ * следующем старте dnscrypt (см. prepareDnsInterceptBeforeStart) */
 async function disableSystemDns(stopDnscryptAfter) {
     if (dnsApplied) restoreSystemDns();
-    settings = store.deepMerge(store.load(), { systemDns: false });
-    store.save(settings);
     rebuildConfigs();
-    sendToRenderer('settings:changed', settings);
     if (stopDnscryptAfter && supervisor?.isRunning('dnscrypt')) {
         await supervisor.stop('dnscrypt');
     }
+}
+
+/* Перед стартом dnscrypt: галка перехвата включена, но эффект не применён —
+ * применить (адаптеры → 127.0.0.1) и пересобрать конфиг на порт 53 */
+function prepareDnsInterceptBeforeStart() {
+    if (!settings.systemDns || dnsApplied) return;
+    if (!netmode.isElevated()) {
+        sendToRenderer('modules:event', {
+            text: 'Перехват DNS включён в настройках, но нужны права администратора — dnscrypt запущен без перехвата',
+        });
+        return;
+    }
+    const r = applySystemDns();
+    if (r.ok) rebuildConfigs();
+    else sendToRenderer('modules:event', { text: `Перехват DNS не применён: ${r.error}` });
+}
+
+/* «Запустить всё» (UI и трей): перехват DNS по галке + Tor для системного прокси */
+function startAllModules() {
+    prepareDnsInterceptBeforeStart();
+    supervisor?.startEnabled(settings.autostart);
+    if (settings.systemProxy && !supervisor.isRunning('tor')) supervisor.start('tor');
 }
 
 const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');
@@ -444,7 +477,7 @@ function trayMenu() {
         { label: 'Открыть Invis', click: () => showWindow() },
         { type: 'separator' },
         /* Точка расширения: управление модулями через супервизор */
-        { label: 'Запустить всё', click: () => supervisor?.startEnabled(settings.autostart) },
+        { label: 'Запустить всё', click: () => startAllModules() },
         { label: 'Остановить всё', click: () => stopAllModules() },
         { type: 'separator' },
         {
@@ -479,13 +512,23 @@ function setSetting(patch) {
     if (patch.systemProxy !== undefined && patch.systemProxy !== Boolean(settings.systemProxy)) {
         const want = patch.systemProxy;
         if (want) {
-            const r = applySystemProxy();
+            let startedTor = false;
+            let r = applySystemProxy();
+            if (!r.ok && supervisor) {
+                /* Tor не запущен — не запрещаем, а стартуем его сами: прокси без него бессмыслен */
+                try { supervisor.start('tor'); startedTor = true; } catch (e) { /* ошибка будет в r */ }
+                r = applySystemProxy();
+            }
             if (!r.ok) {
                 dialog.showMessageBox(win, {
                     type: 'error', title: 'Invis',
                     message: 'Не удалось включить системный прокси', detail: r.error,
                 });
                 patch = { ...patch, systemProxy: false };
+            } else if (startedTor) {
+                sendToRenderer('modules:event', {
+                    text: 'Прокси включён, Tor запускается — трафик пойдёт через него, как только Tor подключится',
+                });
             }
         } else {
             restoreSystemProxy();
@@ -623,7 +666,7 @@ ipcMain.handle('app:info', () => ({
 
 /* ---------- IPC: модули (реальный супервизор демонов) ---------- */
 ipcMain.handle('modules:status', () => supervisor?.status() || {});
-ipcMain.on('modules:start-all', () => supervisor?.startEnabled(settings.autostart));
+ipcMain.on('modules:start-all', () => startAllModules());
 ipcMain.on('modules:stop-all', () => stopAllModules());
 ipcMain.on('modules:toggle', (_e, name) => {
     if (!supervisor || !supervisor.specs[name]) return;
@@ -632,10 +675,14 @@ ipcMain.on('modules:toggle', (_e, name) => {
         if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
         supervisor.stop(name);
     } else {
+        if (name === 'dnscrypt') prepareDnsInterceptBeforeStart();
         supervisor.start(name);
     }
 });
-ipcMain.on('modules:start', (_e, name) => supervisor?.start(name));
+ipcMain.on('modules:start', (_e, name) => {
+    if (name === 'dnscrypt') prepareDnsInterceptBeforeStart();
+    supervisor?.start(name);
+});
 ipcMain.on('modules:stop', (_e, name) => {
     if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
     supervisor?.stop(name);

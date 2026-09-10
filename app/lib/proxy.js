@@ -56,15 +56,21 @@ function readState() {
     return {
         proxyEnable: regQueryValue('ProxyEnable'),
         proxyServer: regQueryValue('ProxyServer'),
+        proxyOverride: regQueryValue('ProxyOverride'),
         autoConfigUrl: regQueryValue('AutoConfigURL'),
     };
 }
+
+/* localhost и частные подсети — мимо Tor: иначе из браузера недоступны
+ * консоль I2P (127.0.0.1:7070) и админки локальной сети */
+const BYPASS_LIST = 'localhost;127.*;10.*;172.*;192.168.*;<local>';
 
 /* Направить системный прокси на SOCKS Tor */
 function apply(socksAddr, tempPath) {
     const backup = readState();
     regSet('ProxyEnable', 'REG_DWORD', '1');
     regSet('ProxyServer', 'REG_SZ', `socks=${socksAddr}`);
+    regSet('ProxyOverride', 'REG_SZ', BYPASS_LIST);
     regDelete('AutoConfigURL'); // PAC перекрыл бы наши настройки
     const refreshed = refreshWininet(tempPath);
     return { backup, refreshed };
@@ -75,13 +81,22 @@ function restore(backup, tempPath) {
     if (backup && backup.proxyServer) {
         regSet('ProxyEnable', 'REG_DWORD', backup.proxyEnable === '0x1' ? '1' : '0');
         regSet('ProxyServer', 'REG_SZ', backup.proxyServer);
+        if (backup.proxyOverride) regSet('ProxyOverride', 'REG_SZ', backup.proxyOverride);
+        else regDelete('ProxyOverride');
         if (backup.autoConfigUrl) regSet('AutoConfigURL', 'REG_SZ', backup.autoConfigUrl);
         else regDelete('AutoConfigURL');
     } else {
         regSet('ProxyEnable', 'REG_DWORD', '0');
         regDelete('ProxyServer');
+        regDelete('ProxyOverride');
     }
     try { refreshWininet(tempPath); } catch (e) { /* best effort */ }
 }
 
-module.exports = { readState, apply, restore };
+/* Включён ли системный прокси, выставленный Invis (наш отпечаток в реестре) */
+function isOursActive() {
+    const s = readState();
+    return s.proxyEnable === '0x1' && (s.proxyServer || '') === 'socks=127.0.0.1:9050';
+}
+
+module.exports = { readState, isOursActive, apply, restore };
