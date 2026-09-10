@@ -208,3 +208,6 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 @keyframes ovSpin { to { transform: rotate(360deg); } }
 .ov-text { color: #d7d7ea; font-size: 14px; text-align: center; max-width: 80%; }
+
+/* Inline-иконки (Lucide): выравнивание по базовой линии текста */
+.ico { vertical-align: -2px; }

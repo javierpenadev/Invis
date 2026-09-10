@@ -7,6 +7,19 @@
 
     const $ = (sel) => document.querySelector(sel);
 
+    /* ---------- Lucide-иконки (inline SVG, stroke=currentColor) ---------- */
+    /* Текстовые ⚡/⏳/✓/✗ на части систем рисуются квадратиками (нет глифа
+     * в системном шрифте) — используем векторные иконки */
+    const ICONS = {
+        zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+        loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+        check: '<path d="M20 6 9 17l-5-5"/>',
+        x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    };
+    const ico = (name, size = 13) =>
+        `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"`
+        + ` stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
     /* ---------- статус и прогресс в контрол-баре ---------- */
     const setStatus = (text, { progress = null, error = false } = {}) => {
         const wrap = $('#progressWrap');
@@ -210,16 +223,16 @@
         const allOn = running === states.length;
         const allOff = states.every((s) => s === 'off');
         if (busy) {
-            start.textContent = '⏳ Запуск…'; start.disabled = true;
+            start.innerHTML = `${ico('loader')} Запуск…`; start.disabled = true;
             stop.textContent = 'Остановить'; stop.disabled = false;
         } else if (allOn) {
-            start.textContent = '✓ Запущено'; start.disabled = true;
+            start.innerHTML = `${ico('check')} Запущено`; start.disabled = true;
             stop.textContent = 'Остановить'; stop.disabled = false;
         } else if (allOff) {
-            start.textContent = '⚡ Запустить всё'; start.disabled = false;
+            start.innerHTML = `${ico('zap')} Запустить всё`; start.disabled = false;
             stop.textContent = 'Остановлено'; stop.disabled = true;
         } else {
-            start.textContent = '⚡ Запустить всё'; start.disabled = false;
+            start.innerHTML = `${ico('zap')} Запустить всё`; start.disabled = false;
             stop.textContent = 'Остановить'; stop.disabled = false;
         }
     };
@@ -510,7 +523,7 @@
                 if (!v) return '';
                 const done = v.detail !== 'проверяю…';
                 const cls = !done ? 'log-warn' : (v.ok ? 'log-info' : 'log-error');
-                const mark = !done ? '⏳' : (v.ok ? '✓' : '✗');
+                const mark = !done ? ico('loader', 12) : (v.ok ? ico('check', 12) : ico('x', 12));
                 return `<span class="${cls}">${mark} ${label}</span>: ${StringUtils.escape(v.detail || '')}`;
             };
             box.innerHTML = [
@@ -528,7 +541,7 @@
                 const r = await UIBridge.invoke('diag:run');
                 render(r);
             } catch (e) {
-                if (box) box.innerHTML = `<span class="log-error">✗ Ошибка проверки: ${StringUtils.escape(e.message || e)}</span>`;
+                if (box) box.innerHTML = `<span class="log-error">${ico('x', 12)} Ошибка проверки: ${StringUtils.escape(e.message || e)}</span>`;
             } finally {
                 if (btn) btn.disabled = false;
             }
