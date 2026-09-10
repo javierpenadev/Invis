@@ -116,6 +116,13 @@
                     if (i === parts.length - 1) node[part] = e.target.checked;
                     else node = node[part] = {};
                 });
+                const OVERLAY_TEXT = {
+                    systemDns: 'Применяю перехват системного DNS…',
+                    systemProxy: 'Переключаю системный прокси…',
+                };
+                const ovText = OVERLAY_TEXT[key]
+                    || (key.startsWith('dnscrypt.presets.') ? 'Загружаю блок-лист…' : null);
+                if (ovText) InvisUI.showOverlay(ovText, { hideOnState: true });
                 UIBridge.invoke('settings:set', patch);
                 if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });
@@ -125,8 +132,24 @@
         UIBridge.on('settings:changed', (s) => {
             applySettingsToForm(s);
             syncResolverSelection(s);
+            hideOverlayIfPending();
         });
     };
+
+    /* ---------- оверлей контента (долгие операции) ---------- */
+    let overlayHideOnState = false;
+    const showOverlay = (text, opts = {}) => {
+        const ov = $('#contentOverlay');
+        if (!ov) return;
+        $('#overlayText').textContent = text || 'Применяю…';
+        ov.classList.remove('is-hidden');
+        overlayHideOnState = Boolean(opts.hideOnState);
+    };
+    const hideOverlay = () => {
+        overlayHideOnState = false;
+        $('#contentOverlay')?.classList.add('is-hidden');
+    };
+    const hideOverlayIfPending = () => { if (overlayHideOnState) hideOverlay(); };
 
     /* ---------- модули: состояния приходят из main (DaemonSupervisor) ---------- */
     const moduleStates = { dnscrypt: 'off', tor: 'off', i2p: 'off' };
@@ -142,6 +165,7 @@
         /* подпись кнопки Пуск/Стоп в строке модуля */
         const btn = document.querySelector(`.module-toggle[data-module="${name}"]`);
         if (btn) btn.textContent = (state === 'on' || state === 'busy') ? 'Стоп' : 'Пуск';
+        hideOverlayIfPending();
         updateModuleButtons();
         updateAggregate();
     };
@@ -338,7 +362,14 @@
 
     const initModules = async () => {
         for (const btn of document.querySelectorAll('.module-toggle')) {
-            btn.addEventListener('click', () => UIBridge.send('modules:toggle', btn.dataset.module));
+            btn.addEventListener('click', () => {
+                const name = btn.dataset.module;
+                /* остановка dnscrypt при перехвате возвращает системный DNS — это заметная пауза */
+                if (name === 'dnscrypt' && moduleStates.dnscrypt === 'on') {
+                    InvisUI.showOverlay('Останавливаю DNSCrypt…', { hideOnState: true });
+                }
+                UIBridge.send('modules:toggle', name);
+            });
         }
         $('#startAllBtn')?.addEventListener('click', () => UIBridge.send('modules:start-all'));
         $('#stopAllBtn')?.addEventListener('click', () => UIBridge.send('modules:stop-all'));
@@ -350,6 +381,7 @@
         if (current) {
             for (const [name, st] of Object.entries(current)) applyModuleState(name, st.state, st.status);
         }
+        $('#appPreloader')?.classList.add('is-hidden');
     };
 
     /* ---------- «О программе» ---------- */
@@ -521,7 +553,7 @@
         });
         UIBridge.on('update:downloaded', () => {
             cur.downloading = false; cur.readyToInstall = true; render();
-            InvisUI.setStatus('Обновление скачано — приложение перезапустится и установит его');
+            InvisUI.showOverlay('Устанавливаю обновление — приложение перезапустится…');
         });
         btn?.addEventListener('click', () => UIBridge.send('update:install'));
     };
@@ -547,5 +579,5 @@
     else init();
 
     /* Публичный мини-апи (для будущей логики демонов) */
-    window.InvisUI = { setStatus, setModuleState };
+    window.InvisUI = { setStatus, setModuleState, showOverlay, hideOverlay };
 })();

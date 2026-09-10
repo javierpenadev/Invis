@@ -193,3 +193,18 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
     cursor: pointer; transition: color .18s ease, border-color .18s ease, transform .18s ease;
 }
 .gh-btn:hover { color: #fff; border-color: #4f4fef; transform: translateY(-1px); }
+
+/* ---------- оверлей контента (долгие операции) ---------- */
+.content-overlay {
+    position: absolute; inset: 0; z-index: 1100;
+    display: flex; flex-direction: column; gap: 16px; align-items: center; justify-content: center;
+    background: rgba(23, 23, 36, .84); backdrop-filter: blur(3px); border-radius: 14px;
+}
+.content-overlay.is-hidden { display: none; }
+.ov-spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid rgba(79, 79, 239, .22); border-top-color: #7474ff;
+    animation: ovSpin .85s linear infinite;
+}
+@keyframes ovSpin { to { transform: rotate(360deg); } }
+.ov-text { color: #d7d7ea; font-size: 14px; text-align: center; max-width: 80%; }

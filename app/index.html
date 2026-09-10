@@ -30,6 +30,11 @@
 
     <!-- Контент: активная вкладка; сверху тайтлбар + таббар, снизу control-bar -->
     <main class="content">
+        <div class="content-overlay is-hidden" id="contentOverlay">
+            <div class="ov-spinner"></div>
+            <div class="ov-text" id="overlayText">Применяю…</div>
+        </div>
+
         <header class="brand-row">
             <svg id="brandLogo" viewBox="0 0 512 512" aria-hidden="true">
                 <defs>
@@ -250,7 +255,7 @@
         </div>
     </div>
 
-    <div class="app-preloader is-hidden" id="appPreloader">
+    <div class="app-preloader" id="appPreloader">
         <div class="preloader-core">
             <img src="assets/img/logo.svg" alt="Logo">
         </div>
