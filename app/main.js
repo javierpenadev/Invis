@@ -118,7 +118,7 @@ function onReady() {
             /* Системный прокси живёт вместе с Tor: галка-настройка сохраняется,
              * снимается/возвращается только эффект */
             if (payload.name === 'tor') {
-                if ((payload.state === 'off' || payload.state === 'error') && proxyApplied) {
+                if ((payload.state === 'off' || payload.state === 'error') && proxyEffectActive()) {
                     restoreSystemProxy();
                     sendToRenderer('modules:event', { text: 'Tor остановлен — системный прокси снят (галка сохранена)' });
                 } else if (payload.state === 'on' && settings.systemProxy && !proxyApplied) {
@@ -432,15 +432,24 @@ function restoreSystemProxy() {
             netmodeLog(`ОШИБКА восстановления прокси: ${e.message}`);
         }
         try { fs.unlinkSync(proxyBackupFile()); } catch (e) { /* нет файла */ }
+    } else if (proxy.isOursActive()) {
+        /* Бэкапа нет, а наш прокси в реестре висит — снимаем (bool-флаг в памяти
+         * мог разойтись с реальностью после сбоя/перезапуска) */
+        proxy.restore(null, app.getPath('temp'));
+        netmodeLog('Системный прокси снят (бэкапа не было, эффект был активен)');
     }
     proxyApplied = false;
 }
+
+/* Реален ли наш прокси прямо сейчас: флаг в памяти недостаточен — после
+ * сбоя/перезапуска/гонки сохранения он расходится с реестром */
+const proxyEffectActive = () => proxyApplied || proxy.isOursActive();
 
 function stopAllModules() {
     if (!supervisor) return Promise.resolve();
     return (async () => {
         if (dnsApplied) await disableSystemDns(false); // вернуть адаптеры, затем гасить всё
-        if (proxyApplied) restoreSystemProxy();        // вернуть системный прокси
+        if (proxyEffectActive()) restoreSystemProxy();        // вернуть системный прокси
         await Promise.all(supervisor.list.map((n) => supervisor.stop(n)));
     })();
 }
@@ -1011,7 +1020,7 @@ app.on('before-quit', (e) => {
     (async () => {
         try { await supervisor?.stopAll(); } catch (err) { /* гасим любой ценой */ }
         if (dnsApplied) restoreSystemDns();
-        if (proxyApplied) restoreSystemProxy();
+        if (proxyEffectActive()) restoreSystemProxy();
         clearTimeout(forceExit);
         cleanupDone = true;
         app.exit(0);
