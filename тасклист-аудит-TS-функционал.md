@@ -3,7 +3,7 @@
 Дата аудита: 2026-09-11 · База: v1.9.4 (HEAD `67868b5`, ветка `main`, чистое дерево)
 Объём: ~4200 LOC JS, 25 файлов (main 1115, renderer 930+271+66, lib 14 модулей, 5 tools), 0 runtime-зависимостей, Electron 44, CJS.
 
-> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены ВЕСЬ блок безопасности SEC-1..SEC-13, BUG-1..BUG-13 и P2 «комментарий-сирота»; SEC-8 полностью (все временные скрипты в mkdtemp). Решение по обновлятору: вариант Б. fetch-bins: версии демонов запинены SHA-256; IP-инфо выхода переведён на HTTPS (free.freeipapi.com). Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
+> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены ВЕСЬ блок безопасности SEC-1..SEC-13, BUG-1..BUG-13, чистка CLEAN/SIM и TS-миграция main-процесса (src/*.ts strict → dist/, рендерер остался JS по осознанному решению) и P2 «комментарий-сирота»; SEC-8 полностью (все временные скрипты в mkdtemp). Решение по обновлятору: вариант Б. fetch-bins: версии демонов запинены SHA-256; IP-инфо выхода переведён на HTTPS (free.freeipapi.com). Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
 
 Пути: `main.js` = `app/main.js`, `lib/*` = `app/lib/*`, `js/*` = `app/js/*` (если не указано иное).
 
@@ -168,20 +168,20 @@ CSP `default-src 'self'` (index.html:5); Tor CookieAuthentication/ClientOnly/NoE
 
 ### Сначала типы (src/types/, ~1 день)
 
-- [ ] **TS-T1. `settings.ts`** — `Settings` из store.js:10-45 (`Autostart`, `DnscryptSettings` c `presets`, `TorSettings`), `SettingsPatch = DeepPartial<Settings>` для `setSetting(patch)` (main.js:633).
-- [ ] **TS-T2. `ipc.ts`** — карта каналов: invoke (`settings:get/set`, `modules:status/toggle/…`, `diag:run`, `tor:countries/exitinfo/speedtest/newip`, `bridges:fetch`, `resolvers:list`, `adapters:list`, `querylog:get/clear`, `net:speed`, `update:*`) и push (`modules:state/event`, `settings:changed`, `diag:result`, `update:available/progress/downloaded`). Типизированные обёртки поверх UIBridge. Мёртвые каналы пометить/удалить (CLEAN-1, P2).
-- [ ] **TS-T3. `daemon.ts`** — `DaemonName = 'tor'|'dnscrypt'|'i2p'`, `DaemonState = 'off'|'busy'|'on'|'error'`, `ModuleStatus`, дискриминированный `DaemonSpec` (bootstrap vs port-probe), `ProcessSlot`, `ProxyBackup` (proxy.js:56-63), результирующие юнионы `{ok:true,...}|{ok:false,error}` (уже де-факто есть в 5 модулях).
+- [x] **TS-T1. `settings.ts`** — `Settings` из store.js:10-45 (`Autostart`, `DnscryptSettings` c `presets`, `TorSettings`), `SettingsPatch = DeepPartial<Settings>` для `setSetting(patch)` (main.js:633).
+- [x] **TS-T2. `ipc.ts`** — карта каналов: invoke (`settings:get/set`, `modules:status/toggle/…`, `diag:run`, `tor:countries/exitinfo/speedtest/newip`, `bridges:fetch`, `resolvers:list`, `adapters:list`, `querylog:get/clear`, `net:speed`, `update:*`) и push (`modules:state/event`, `settings:changed`, `diag:result`, `update:available/progress/downloaded`). Типизированные обёртки поверх UIBridge. Мёртвые каналы пометить/удалить (CLEAN-1, P2).
+- [x] **TS-T3. `daemon.ts`** — `DaemonName = 'tor'|'dnscrypt'|'i2p'`, `DaemonState = 'off'|'busy'|'on'|'error'`, `ModuleStatus`, дискриминированный `DaemonSpec` (bootstrap vs port-probe), `ProcessSlot`, `ProxyBackup` (proxy.js:56-63), результирующие юнионы `{ok:true,...}|{ok:false,error}` (уже де-факто есть в 5 модулях).
 
 ### Фазы конверсии (строгий режим с первого дня)
 
-- [ ] **TS-0. Туллинг** (S, 2-4 ч): devDeps, tsconfig.main.json, jsconfig.json + globals.d.ts для рендерера, скрипты package.json, проверка `npm start` и `dist:portable`.
-- [ ] **TS-1. Листья lib без Electron** (~1.5-2 дня): diag (S) → bridges (S) → netspeed (S, заодно BUG-1) → resolvers (S, поднять inline require) → updater (S) → torctl (S-M) → blocklists (S) → ipinfo (M) → onionoo (M) → netmode (M, заодно SEC-2) → proxy (M) → torspeed (M, заодно дубли export).
-- [ ] **TS-2. Ядро** (~1 день): store.js (M — generic deepMerge над `Settings`), lib/configs.js (M).
-- [ ] **TS-3. Supervisor** (0.5-1 день): lib/daemons.js (класс, дискриминированные спеки, ChildProcess-bookkeeping); проверка `npm run check`.
-- [ ] **TS-4. main.js** (1-2 дня, 1115 LOC): IPC-хендлеры, трей, update-флоу, поднять мид-файл require'ы (main.js:977-981).
-- [ ] **TS-5. Renderer JS-фаза** (0.5 дня): checkJs на js/*.js, типизация UIBridge.
+- [x] **TS-0. Туллинг** (S, 2-4 ч): devDeps, tsconfig.main.json, jsconfig.json + globals.d.ts для рендерера, скрипты package.json, проверка `npm start` и `dist:portable`.
+- [x] **TS-1. Листья lib без Electron** (~1.5-2 дня): diag (S) → bridges (S) → netspeed (S, заодно BUG-1) → resolvers (S, поднять inline require) → updater (S) → torctl (S-M) → blocklists (S) → ipinfo (M) → onionoo (M) → netmode (M, заодно SEC-2) → proxy (M) → torspeed (M, заодно дубли export).
+- [x] **TS-2. Ядро** (~1 день): store.js (M — generic deepMerge над `Settings`), lib/configs.js (M).
+- [x] **TS-3. Supervisor** (0.5-1 день): lib/daemons.js (класс, дискриминированные спеки, ChildProcess-bookkeeping); проверка `npm run check`.
+- [x] **TS-4. main.js** (1-2 дня, 1115 LOC): IPC-хендлеры, трей, update-флоу, поднять мид-файл require'ы (main.js:977-981).
+- [x] **TS-5. Renderer JS-фаза** (0.5 дня): checkJs на js/*.js, типизация UIBridge.
 - [ ] **TS-6. Renderer TS-фаза** (2-4 дня): electron-bridge (S) → utils (S) → cursor-fx (M) → app.js (L) + esbuild-бандл, правка script-тегов index.html.
-- [ ] **TS-7. Tools** (0.5 дня): dev-check (перевод на dist или tsx), screenshot (стабы из общего `Settings`/`ipc` — закрывает BUG-13), удалить check-settings.js, починить make-icons devDeps (BUG-12).
+- [x] **TS-7. Tools** (0.5 дня): dev-check (перевод на dist или tsx), screenshot (стабы из общего `Settings`/`ipc` — закрывает BUG-13), удалить check-settings.js, починить make-icons devDeps (BUG-12).
 
 **Итого:** ~8-13 раб. дней до полного strict TS; ~4-5 дней, если рендерер остаётся на checkJs.
 

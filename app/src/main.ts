@@ -1,39 +1,48 @@
 /*
  * Invis — Electron-оболочка tray-приложения.
- * Окно маленькое, закрывается в трей; настройки — JSON (store.js).
+ * Окно маленькое, закрывается в трей; настройки — JSON (store).
  * Точки расширения помечены «Точка расширения:» (демоны, IPC-каналы и т.п.).
  */
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard } = require('electron');
-const { spawn, execFileSync } = require('child_process');
-const { pathToFileURL } = require('url');
-const fs = require('fs');
-const path = require('path');
-const store = require('./store');
-const { buildAll: buildConfigs, PORTS } = require('./lib/configs');
-const { DaemonSupervisor } = require('./lib/daemons');
-const netmode = require('./lib/netmode');
-const { readResolvers } = require('./lib/resolvers');
-const torctl = require('./lib/torctl');
-const diag = require('./lib/diag');
-const blocklists = require('./lib/blocklists');
-const bridges = require('./lib/bridges');
-const updater = require('./lib/updater');
-const proxy = require('./lib/proxy');
+import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard, shell } from 'electron';
+import { spawn, execFileSync, execFile } from 'child_process';
+import { pathToFileURL } from 'url';
+import * as fs from 'fs';
+import * as path from 'path';
 
-let win = null;
-let tray = null;
-let trayState = null;
-const trayIcons = {};
+import * as store from './store';
+import { buildAll as buildConfigs, PORTS } from './lib/configs';
+import { DaemonSupervisor, DaemonState, ModuleStatus } from './lib/daemons';
+import * as netmode from './lib/netmode';
+import { readResolvers } from './lib/resolvers';
+import * as torctl from './lib/torctl';
+import * as diag from './lib/diag';
+import * as blocklists from './lib/blocklists';
+import * as bridges from './lib/bridges';
+import * as updater from './lib/updater';
+import * as proxy from './lib/proxy';
+import * as ipinfo from './lib/ipinfo';
+import * as onionoo from './lib/onionoo';
+import * as torspeed from './lib/torspeed';
+import * as netspeed from './lib/netspeed';
+import { Settings, SettingsPatch, DaemonName } from './types';
+import type { DnsBackupEntry } from './lib/netmode';
+import type { ExitInfoResult } from './lib/torspeed';
+
+let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let trayState: string | null = null;
+const trayIcons: Record<string, Electron.NativeImage> = {};
 let quitting = false;          // true — выходим по-настоящему, а не сворачиваемся
-const trayInfo = { exit: null, speed: null };   // кэш для меню трея
+interface TraySpeed { mbps: number; viaTor: boolean; }
+const trayInfo: { exit: ExitInfoResult | null; speed: TraySpeed | null } = { exit: null, speed: null };   // кэш для меню трея
 let balloonShown = false;      // подсказка «работает в трее» — один раз за сессию
-let settings = store.load();
-let supervisor = null;
-let configDirGlobal = null;
+let settings: Settings = store.load();
+let supervisor: DaemonSupervisor | null = null;
+let configDirGlobal: string | null = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
-let newIpTimer = null;         // авто-смена IP Tor
+let newIpTimer: NodeJS.Timeout | null = null;         // авто-смена IP Tor
 let cleanupDone = false;       // очистка перед выходом выполнена
-const startupWarnings = [];   // предупреждения для UI после создания окна
+const startupWarnings: string[] = [];   // предупреждения для UI после создания окна
 let proxyApplied = false;      // системный прокси направлен на Tor
 
 const TITLE = 'Invis';
@@ -49,15 +58,17 @@ const dnsBackupFile = () => path.join(store.baseDir(), 'dns-backup.json');
  * символы IP. Всё остальное отбрасываем: файл в userData может быть подменён
  * малварью того же пользователя (см. таск-лист аудита SEC-2). */
 const IPV_RE = /^[0-9a-fA-F.:]{2,45}$/;
-function sanitizeDnsBackup(raw) {
+function sanitizeDnsBackup(raw: unknown): DnsBackupEntry[] | null {
     if (!Array.isArray(raw)) return null;
-    const out = [];
+    const out: DnsBackupEntry[] = [];
     for (const item of raw) {
         if (!item || typeof item !== 'object'
-                || typeof item.alias !== 'string' || !item.alias.trim()
-                || !Array.isArray(item.addresses)) continue;
-        const addresses = item.addresses.filter((a) => typeof a === 'string' && IPV_RE.test(a));
-        out.push({ alias: item.alias.trim(), addresses });
+                || typeof (item as { alias?: unknown }).alias !== 'string'
+                || !(item as { alias: string }).alias.trim()
+                || !Array.isArray((item as { addresses?: unknown }).addresses)) continue;
+        const rec = item as { alias: string; addresses: unknown[] };
+        const addresses = rec.addresses.filter((a): a is string => typeof a === 'string' && IPV_RE.test(a));
+        out.push({ alias: rec.alias.trim(), addresses });
     }
     return out.length ? out : null;
 }
@@ -66,7 +77,7 @@ function sanitizeDnsBackup(raw) {
 /* relaunchElevated стартует новый процесс, пока старый ещё завершается
  * (блокирующая очистка демонов занимает секунды) — lock бывает занят.
  * Даём новому экземпляру до 10 с на его освобождение. */
-function run() {
+function run(): void {
     app.on('second-instance', () => showWindow());
     app.whenReady().then(onReady);
 }
@@ -85,7 +96,7 @@ if (app.requestSingleInstanceLock()) {
     }, 250);
 }
 
-function onReady() {
+function onReady(): void {
     /* Применяем автозапуск с Windows (синхронизирует реестр с настройкой) */
     applyLaunchWithWindows();
 
@@ -158,7 +169,7 @@ function onReady() {
             } else if (payload.name === 'dnscrypt'
                     && (payload.state === 'off' || payload.state === 'error') && dnsApplied) {
                 /* dnscrypt остановился/упал сам — адаптеры нельзя оставлять на 127.0.0.1 */
-                disableSystemDns(false);
+                void disableSystemDns(false);
                 sendToRenderer('modules:event', { text: 'DNSCrypt остановлен — системный DNS восстановлен (галка сохранена)' });
             }
         },
@@ -168,14 +179,14 @@ function onReady() {
     initTrayIcons();
     createTray();
     scheduleNewIp();
-    refreshTrayInfo();
-    setInterval(refreshTrayInfo, 5 * 60 * 1000);
+    void refreshTrayInfo();
+    setInterval(() => { void refreshTrayInfo(); }, 5 * 60 * 1000);
 
     /* Авто-обновление: первая проверка через 20 с, далее раз в 4 часа */
     if (!process.env.INVIS_NO_UPDATE) {
         /* Проверка обновлений при запуске — если включено автообновление */
-        if (settings.autoUpdate) setTimeout(() => checkForUpdates(true), 20000);
-        setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
+        if (settings.autoUpdate) setTimeout(() => { void checkForUpdates(true); }, 20000);
+        setInterval(() => { void checkForUpdates(); }, 4 * 60 * 60 * 1000);
     }
     /* мусор от прошлых обновлений portable-версии: настоящий лаунчер лежит в
      * PORTABLE_EXECUTABLE_DIR, а не рядом с process.execPath (это temp-копия) */
@@ -190,10 +201,11 @@ function onReady() {
     });
 
     /* Автозапуск модулей согласно настройкам */
-    if (!process.env.INVIS_NO_AUTOSTART) {
-        const started = supervisor.startEnabled(settings.autostart);
+    const sup = supervisor;
+    if (!process.env.INVIS_NO_AUTOSTART && sup) {
+        const started = sup.startEnabled(settings.autostart);
         /* Системный прокси живёт вместе с Tor: если галка включена, Tor нужен всегда */
-        if (settings.systemProxy && !supervisor.isRunning('tor')) supervisor.start('tor');
+        if (settings.systemProxy && !sup.isRunning('tor')) sup.start('tor');
         if (started.length) console.log(`[Invis] Автозапуск модулей: ${started.join(', ')}`);
     }
 
@@ -205,7 +217,7 @@ function onReady() {
             let refreshedAny = false;
             for (const name of enabledPresets) {
                 try {
-                    const { refreshed } = await blocklists.ensure(configDirGlobal, name);
+                    const { refreshed } = await blocklists.ensure(configDirGlobal as string, name);
                     if (refreshed) {
                         refreshedAny = true;
                         sendToRenderer('modules:event', {
@@ -220,12 +232,12 @@ function onReady() {
 }
 
 /* Каталог бинарников: в сборке — resources/bin, в dev — <проект>/bin */
-function binDir() {
+function binDir(): string {
     return app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(APP_ROOT, 'bin');
 }
 
 /* ---------- системный DNS (перехват на 127.0.0.1, порт 53 у dnscrypt) ---------- */
-function netmodeLog(msg) {
+function netmodeLog(msg: string): void {
     try {
         fs.mkdirSync(path.join(store.baseDir(), 'logs'), { recursive: true });
         fs.appendFileSync(path.join(store.baseDir(), 'logs', 'netmode.log'),
@@ -233,7 +245,7 @@ function netmodeLog(msg) {
     } catch (e) { /* лог не критичен */ }
 }
 
-function applySystemDns() {
+function applySystemDns(): { ok: boolean; error?: string } {
     if (dnsApplied) return { ok: true };
     const owner = netmode.port53Owner();
     if (owner) {
@@ -260,7 +272,7 @@ function applySystemDns() {
     return { ok: true };
 }
 
-function restoreSystemDns() {
+function restoreSystemDns(): void {
     const backup = sanitizeDnsBackup(netmode.readBackup(dnsBackupFile()));
     if (!backup) {
         /* Файла нет или он не прошёл валидацию: бэкап битого вида нельзя
@@ -281,7 +293,7 @@ function restoreSystemDns() {
             if (!addresses.length || allLoopback) netmode.resetDns(alias);
             else netmode.setDnsList(alias, addresses);
         } catch (e) {
-            netmodeLog(`ОШИБКА восстановления DNS на «${alias}»: ${e.message}`);
+            netmodeLog(`ОШИБКА восстановления DNS на «${alias}»: ${(e as Error).message}`);
         }
     }
     netmode.removeBackup(dnsBackupFile());
@@ -290,14 +302,17 @@ function restoreSystemDns() {
 }
 
 /* После сбоя: вернуть прежние настройки DNS */
-function recoverSystemDnsIfNeeded() {
+function recoverSystemDnsIfNeeded(): void {
     if (!netmode.readBackup(dnsBackupFile())) return;
     netmodeLog('Обнаружен невосстановленный dns-backup при старте');
     if (netmode.isElevated()) {
         restoreSystemDns();
         return;
     }
-    const { response } = dialog.showMessageBoxSync({
+    /* ВАЖНО: showMessageBoxSync возвращает индекс кнопки (число), а не объект —
+     * прежний код `const { response } = ...` давал undefined и обе кнопки
+     * (DNS-восстановление, UAC-перезапуск) не срабатывали никогда */
+    const response = dialog.showMessageBoxSync({
         type: 'warning',
         title: 'Invis',
         message: 'Invis не завершил работу корректно: системный DNS остался направлен на 127.0.0.1.',
@@ -310,7 +325,7 @@ function recoverSystemDnsIfNeeded() {
 }
 
 /* Разовое восстановление DNS через отдельный elevated-процесс */
-function restoreElevatedOneShot() {
+function restoreElevatedOneShot(): void {
     const backup = sanitizeDnsBackup(netmode.readBackup(dnsBackupFile()));
     if (!backup) {
         netmode.removeBackup(dnsBackupFile());
@@ -341,7 +356,7 @@ function restoreElevatedOneShot() {
 }
 
 /* Перезапуск приложения с правами администратора (UAC) */
-function relaunchElevated() {
+function relaunchElevated(): void {
     const exe = process.execPath.replace(/'/g, "''");
     const args = app.isPackaged ? [] : [APP_ROOT.replace(/'/g, "''")];
     const ps = `Start-Process -FilePath '${exe}' ${args.length ? `-ArgumentList ${args.map((a) => `'${a}'`).join(',')}` : ''} -Verb RunAs`;
@@ -351,11 +366,11 @@ function relaunchElevated() {
 }
 
 /* Перегенерация конфигов (порт dnscrypt зависит от режима DNS) */
-function rebuildConfigs() {
+function rebuildConfigs(): void {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
     const base = store.baseDir();
     buildConfigs({
-        configDir: configDirGlobal,
+        configDir: configDirGlobal as string,
         torDataDir: path.join(base, 'data', 'tor'),
         i2pDataDir: path.join(base, 'data', 'i2pd'),
         geoipDir: path.join(binDir(), 'tor', 'data'),
@@ -368,10 +383,11 @@ function rebuildConfigs() {
     supervisor?.setDnscryptPort(listen);
 }
 
-function rebuildConfigsAndRestartDnscrypt() {
+function rebuildConfigsAndRestartDnscrypt(): void {
     rebuildConfigs();
-    if (supervisor?.isRunning('dnscrypt')) {
-        supervisor.stop('dnscrypt').then(() => supervisor.start('dnscrypt'));
+    const sup = supervisor;
+    if (sup?.isRunning('dnscrypt')) {
+        sup.stop('dnscrypt').then(() => sup.start('dnscrypt')).catch(() => {});
     }
 }
 
@@ -379,7 +395,7 @@ function rebuildConfigsAndRestartDnscrypt() {
  * уровне сборки, опции отключения нет). В трее должен быть только Invis —
  * находим скрытое окно i2pd и удаляем его иконку через Shell_NotifyIcon.
  * Вернётся она только после перезапуска explorer (TaskbarCreated). */
-function hideI2pdTrayIcon() {
+function hideI2pdTrayIcon(): void {
     if (process.platform !== 'win32') return;
     const ps = [
         "$sig = @'",
@@ -409,14 +425,14 @@ function hideI2pdTrayIcon() {
     try {
         spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps],
             { windowsHide: true, stdio: 'ignore' });
-    } catch (e) { netmodeLog(`Не удалось скрыть иконку i2pd: ${e.message}`); }
+    } catch (e) { netmodeLog(`Не удалось скрыть иконку i2pd: ${(e as Error).message}`); }
 }
 
 /* Firewall-правила для доступа к DNS из LAN (best-effort, нужен админ).
  * Правила узкие (SEC-6): только приватный профиль, только частные подсети,
  * только процесс dnscrypt и реально настроенный порт. Раньше — все профили,
  * любой источник, всегда порт 53 (даже когда dnscrypt слушает 9053). */
-function syncLanFirewall(enabled) {
+function syncLanFirewall(enabled: boolean): void {
     const port = dnsApplied ? 53 : PORTS.dnscrypt;
     const prog = path.join(binDir(), 'dnscrypt', 'win64', 'dnscrypt-proxy.exe');
     /* Легаси-имена из старых версий тоже подчищаем */
@@ -441,13 +457,13 @@ function syncLanFirewall(enabled) {
             ? 'правила добавлены (private, частные подсети, dnscrypt.exe)'
             : 'правила удалены'}`);
     } catch (e) {
-        netmodeLog(`Firewall LAN DNS: не удалось (${e.message})`);
+        netmodeLog(`Firewall LAN DNS: не удалось (${(e as Error).message})`);
     }
 }
 
 /* Снять перехват DNS, сохранив галку как намерение: эффект вернётся при
  * следующем старте dnscrypt (см. prepareDnsInterceptBeforeStart) */
-async function disableSystemDns(stopDnscryptAfter) {
+async function disableSystemDns(stopDnscryptAfter: boolean): Promise<void> {
     if (dnsApplied) restoreSystemDns();
     rebuildConfigs();
     if (stopDnscryptAfter && supervisor?.isRunning('dnscrypt')) {
@@ -457,7 +473,7 @@ async function disableSystemDns(stopDnscryptAfter) {
 
 /* Перед стартом dnscrypt: галка перехвата включена, но эффект не применён —
  * применить (адаптеры → 127.0.0.1) и пересобрать конфиг на порт 53 */
-function prepareDnsInterceptBeforeStart() {
+function prepareDnsInterceptBeforeStart(): void {
     if (!settings.systemDns || dnsApplied) return;
     if (!netmode.isElevated()) {
         sendToRenderer('modules:event', {
@@ -471,10 +487,10 @@ function prepareDnsInterceptBeforeStart() {
 }
 
 /* «Запустить всё» (UI и трей): перехват DNS по галке + Tor для системного прокси */
-function startAllModules() {
+function startAllModules(): void {
     prepareDnsInterceptBeforeStart();
     supervisor?.startEnabled(settings.autostart);
-    if (settings.systemProxy) {
+    if (settings.systemProxy && supervisor) {
         /* Прокси живёт вместе с Tor. Раньше полагались только на событие
          * tor 'on' — при гонке «остановил всё → сразу запустил всё» оно
          * терялось и прокси не возвращался, хотя галка включена. */
@@ -488,7 +504,7 @@ function startAllModules() {
 
 const proxyBackupFile = () => path.join(store.baseDir(), 'proxy-backup.json');
 
-function applySystemProxy() {
+function applySystemProxy(): { ok: boolean; error?: string } {
     if (proxyApplied) return { ok: true };
     if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Сначала запустите Tor — прокси указывает на него.' };
     /* Не бэкапим собственный отпечаток: если прошлый сеанс завершился без
@@ -513,7 +529,7 @@ function applySystemProxy() {
     return { ok: true };
 }
 
-function restoreSystemProxy() {
+function restoreSystemProxy(): void {
     if (fs.existsSync(proxyBackupFile())) {
         try {
             const saved = JSON.parse(fs.readFileSync(proxyBackupFile(), 'utf8'));
@@ -523,7 +539,7 @@ function restoreSystemProxy() {
             proxy.restore(poisoned ? null : saved, app.getPath('temp'));
             netmodeLog('Системный прокси восстановлен: ' + JSON.stringify(poisoned ? null : saved));
         } catch (e) {
-            netmodeLog(`ОШИБКА восстановления прокси: ${e.message}`);
+            netmodeLog(`ОШИБКА восстановления прокси: ${(e as Error).message}`);
         }
         try { fs.unlinkSync(proxyBackupFile()); } catch (e) { /* нет файла */ }
     } else if (proxy.isOursActive()) {
@@ -539,17 +555,17 @@ function restoreSystemProxy() {
  * сбоя/перезапуска/гонки сохранения он расходится с реестром */
 const proxyEffectActive = () => proxyApplied || proxy.isOursActive();
 
-function stopAllModules() {
+function stopAllModules(): Promise<void> {
     if (!supervisor) return Promise.resolve();
     return (async () => {
         if (dnsApplied) await disableSystemDns(false); // вернуть адаптеры, затем гасить всё
         if (proxyEffectActive()) restoreSystemProxy();        // вернуть системный прокси
-        await Promise.all(supervisor.list.map((n) => supervisor.stop(n)));
+        await Promise.all(supervisor.list.map((n) => supervisor!.stop(n)));
     })();
 }
 
 /* ---------- окно ---------- */
-function createWindow() {
+function createWindow(): void {
     win = new BrowserWindow({
         width: 820,
         height: 560,
@@ -570,7 +586,7 @@ function createWindow() {
         },
     });
     win.setMenuBarVisibility(false);
-    win.loadFile(path.join(APP_ROOT, 'index.html'));
+    void win.loadFile(path.join(APP_ROOT, 'index.html'));
 
     /* SEC-1: никаких открытий окон и навигаций из рендерера — только своя страница */
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -591,7 +607,7 @@ function createWindow() {
     /* Смоук-тест: APP_SMOKE=<мс> — вывести консоль рендерера и закрыться */
     if (process.env.APP_SMOKE) {
         win.webContents.on('console-message', (_e, a, b) => {
-            const msg = typeof a === 'object' && a ? a.message : (b ?? a);
+            const msg = typeof a === 'object' && a ? (a as { message?: string }).message : (b ?? a);
             console.log('[renderer]', msg);
         });
         win.webContents.on('render-process-gone', (_e, details) => {
@@ -601,14 +617,14 @@ function createWindow() {
     }
 }
 
-function showWindow() {
+function showWindow(): void {
     if (!win) { createWindow(); return; }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
 }
 
-function hideToTray() {
+function hideToTray(): void {
     if (!win) return;
     win.hide();
     if (!balloonShown) {
@@ -624,9 +640,9 @@ function hideToTray() {
 }
 
 /* ---------- трей ---------- */
-const TRAY_LABELS = { on: 'работает', off: 'выключен', busy: 'проблема / переходный процесс' };
+const TRAY_LABELS: Record<string, string> = { on: 'работает', off: 'выключен', busy: 'проблема / переходный процесс' };
 
-function initTrayIcons() {
+function initTrayIcons(): void {
     for (const s of ['on', 'off', 'busy']) {
         trayIcons[s] = nativeImage.createFromPath(path.join(APP_ROOT, 'assets', 'img', `tray-${s}.png`));
     }
@@ -634,14 +650,14 @@ function initTrayIcons() {
 
 /* Агрегированный статус: жёлтый — ошибка или переход, зелёный — хоть один модуль
  * работает, красный — всё выключено (по ТЗ пользователя: green/red/yellow) */
-function aggregateTrayState() {
+function aggregateTrayState(): 'on' | 'off' | 'busy' {
     const states = Object.values(supervisor ? supervisor.status() : {}).map((v) => v.state);
     if (states.some((s) => s === 'error' || s === 'busy')) return 'busy';
     if (states.some((s) => s === 'on')) return 'on';
     return 'off';
 }
 
-function setTrayState(state) {
+function setTrayState(state: 'on' | 'off' | 'busy'): void {
     if (!tray || !trayIcons[state] || state === trayState) return;
     trayState = state;
     tray.setImage(trayIcons[state]);
@@ -651,8 +667,8 @@ function setTrayState(state) {
 /* Лёгкий замер для трея: скорость раз в 5 минут, IP выхода — при живом Tor.
  * Это ЕДИНСТВЕННЫЙ таймер замера в приложении: результат пушится рендереру
  * в шапку (раньше рендерер качал свой 1 МБ параллельно — двойной трафик). */
-async function refreshTrayInfo(manual = false) {
-    const viaTor = supervisor?.isRunning('tor');
+async function refreshTrayInfo(manual = false): Promise<void> {
+    const viaTor = supervisor?.isRunning('tor') ?? false;
     try {
         const mbps = await netspeed.measure({ viaTor });
         trayInfo.speed = { mbps, viaTor };
@@ -667,7 +683,7 @@ async function refreshTrayInfo(manual = false) {
     tray?.setContextMenu(trayMenu());
 }
 
-function createTray() {
+function createTray(): void {
     tray = new Tray(trayIcons.off);
     trayState = 'off';
     tray.setToolTip(`Invis — ${TRAY_LABELS.off}`);
@@ -680,9 +696,11 @@ function createTray() {
     });
 }
 
-function trayMenu() {
-    const st = supervisor ? supervisor.status() : {};
-    const mark = (n) => (st[n] ? (st[n].state === 'on' ? '✓' : (st[n].state === 'busy' ? '…' : '×')) : '×');
+function trayMenu(): Electron.Menu {
+    const st: Record<DaemonName, { state: DaemonState; status: string }> = supervisor
+        ? supervisor.status()
+        : {} as Record<DaemonName, { state: DaemonState; status: string }>;
+    const mark = (n: DaemonName) => (st[n] ? (st[n].state === 'on' ? '✓' : (st[n].state === 'busy' ? '…' : '×')) : '×');
     const e = trayInfo.exit;
     const exitLine = supervisor?.isRunning('tor')
         ? (e ? ('Выход: ' + (e.cc || '??') + ' ' + [e.city, e.country].filter(Boolean).join(', ')
@@ -696,13 +714,13 @@ function trayMenu() {
         { label: 'Tor ' + mark('tor') + '    DNSCrypt ' + mark('dnscrypt') + '    I2P ' + mark('i2p'), enabled: false },
         { label: exitLine, enabled: false },
         { label: speedLine, enabled: false },
-        { label: 'Обновить данные', click: () => { trayInfo.speed = null; refreshTrayInfo(true); } },
+        { label: 'Обновить данные', click: () => { trayInfo.speed = null; void refreshTrayInfo(true); } },
         { type: 'separator' },
         { label: 'Открыть Invis', click: () => showWindow() },
         { type: 'separator' },
         /* Точка расширения: управление модулями через супервизор */
         { label: 'Запустить всё', click: () => startAllModules() },
-        { label: 'Остановить всё', click: () => stopAllModules() },
+        { label: 'Остановить всё', click: () => { void stopAllModules(); } },
         { type: 'separator' },
         {
             label: 'Запускать с Windows',
@@ -721,12 +739,12 @@ function trayMenu() {
 /* ---------- автозапуск с Windows (per-user, реестр Run) ----------
  * В dev-режиме регистрируется electron.exe — норма для шаблона;
  * в собранном приложении регистрируется сам exe. */
-function applyLaunchWithWindows() {
+function applyLaunchWithWindows(): void {
     app.setLoginItemSettings({ openAtLogin: Boolean(settings.launchWithWindows) });
 }
 
 /* ---------- изменения настроек (общая точка: IPC и меню трея) ---------- */
-function setSetting(patch) {
+function setSetting(patch: SettingsPatch): Settings {
     const lanChanged = patch.dnscrypt && patch.dnscrypt.lanAccess !== undefined
         && patch.dnscrypt.lanAccess !== Boolean(settings.dnscrypt?.lanAccess);
     const adaptersChanged = patch.systemDnsAdapters !== undefined
@@ -744,7 +762,7 @@ function setSetting(patch) {
                 r = applySystemProxy();
             }
             if (!r.ok) {
-                dialog.showMessageBox(win, {
+                dialog.showMessageBox(win!, {
                     type: 'error', title: 'Invis',
                     message: 'Не удалось включить системный прокси', detail: r.error,
                 });
@@ -765,7 +783,7 @@ function setSetting(patch) {
     if (patch.systemDns !== undefined && patch.systemDns !== Boolean(settings.systemDns)) {
         const want = patch.systemDns;
         if (want && !netmode.isElevated()) {
-            const { response } = dialog.showMessageBoxSync(win, {
+            const response = dialog.showMessageBoxSync(win!, {
                 type: 'question',
                 title: 'Invis',
                 message: 'Перехват системного DNS требует прав администратора.',
@@ -786,7 +804,7 @@ function setSetting(patch) {
         if (want) {
             const r = applySystemDns();
             if (!r.ok) {
-                dialog.showMessageBox(win, {
+                dialog.showMessageBox(win!, {
                     type: 'error',
                     title: 'Invis',
                     message: 'Не удалось включить системный DNS',
@@ -809,11 +827,11 @@ function setSetting(patch) {
         store.save(settings);
     } catch (e) {
         /* Раньше ошибка записи тонула и выглядела как «настройки сбросились» */
-        sendToRenderer('modules:event', { text: `Не удалось сохранить настройки: ${e.message}` });
+        sendToRenderer('modules:event', { text: `Не удалось сохранить настройки: ${(e as Error).message}` });
         throw e; // рендерер покажет ошибку в статус-баре
     }
     if (patch.launchWithWindows !== undefined) applyLaunchWithWindows();
-    if (patch.autoUpdate) checkForUpdates(true);
+    if (patch.autoUpdate) void checkForUpdates(true);
 
     /* Изменились параметры dnscrypt — перегенерировать toml и мягко перезапустить */
     if (patch.dnscrypt !== undefined) {
@@ -825,10 +843,11 @@ function setSetting(patch) {
     if (patch.tor !== undefined) {
         scheduleNewIp();
         rebuildConfigs(); /* новый torrc до рестарта Tor */
-if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
+        if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
                 || patch.tor.exitCountries !== undefined)
                 && supervisor?.isRunning('tor')) {
-            supervisor.stop('tor').then(() => supervisor.start('tor'));
+            const sup = supervisor;
+            sup.stop('tor').then(() => sup.start('tor')).catch(() => {});
         }
     }
 
@@ -840,7 +859,7 @@ if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
         (async () => {
             try {
                 sendToRenderer('modules:event', { text: `Загрузка блок-листа «${blocklists.PRESETS[name].label}»…` });
-                const { refreshed } = await blocklists.ensure(configDirGlobal, name);
+                const { refreshed } = await blocklists.ensure(configDirGlobal as string, name);
                 sendToRenderer('modules:event', {
                     text: refreshed
                         ? `Блок-лист «${blocklists.PRESETS[name].label}» загружен`
@@ -848,7 +867,7 @@ if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
                 });
                 rebuildConfigsAndRestartDnscrypt();
             } catch (e) {
-                sendToRenderer('modules:event', { text: `Блок-лист «${name}»: ${e.message}` });
+                sendToRenderer('modules:event', { text: `Блок-лист «${name}»: ${(e as Error).message}` });
             }
         })();
     }
@@ -866,7 +885,7 @@ if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
 }
 
 /* ---------- Tor: NEWNYM (смена IP) ---------- */
-function scheduleNewIp() {
+function scheduleNewIp(): void {
     if (newIpTimer) { clearInterval(newIpTimer); newIpTimer = null; }
     const minutes = Number(settings.tor?.newIpMinutes) || 0;
     if (minutes <= 0) return;
@@ -877,7 +896,7 @@ function scheduleNewIp() {
     }, minutes * 60000);
 }
 
-function sendToRenderer(channel, payload) {
+function sendToRenderer(channel: string, payload: unknown): void {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
@@ -885,12 +904,10 @@ function sendToRenderer(channel, payload) {
 ipcMain.on('window-minimize', () => win?.minimize());
 ipcMain.on('window-maximize', () => {
     if (!win) return;
-    win.isMaximized() ? win.unmaximize() : win.maximize();
+    if (win.isMaximized()) win.unmaximize(); else win.maximize();
 });
 ipcMain.on('window-devtools', () => win?.webContents.toggleDevTools());
 ipcMain.on('window-close', () => win?.close());
-ipcMain.on('window-hide', () => hideToTray());
-ipcMain.on('app:quit', () => { quitting = true; app.quit(); });
 
 /* ---------- IPC: настройки ---------- */
 ipcMain.handle('settings:get', () => settings);
@@ -905,26 +922,26 @@ ipcMain.handle('app:info', () => ({
 /* ---------- IPC: модули (реальный супервизор демонов) ---------- */
 ipcMain.handle('modules:status', () => supervisor?.status() || {});
 ipcMain.on('modules:start-all', () => startAllModules());
-ipcMain.on('modules:stop-all', () => stopAllModules());
-ipcMain.on('modules:toggle', (_e, name) => {
+ipcMain.on('modules:stop-all', () => { void stopAllModules(); });
+ipcMain.on('modules:toggle', (_e, name: DaemonName) => {
     if (!supervisor || !supervisor.specs[name]) return;
     if (supervisor.isRunning(name)) {
         /* Остановка dnscrypt при перехвате: сначала вернуть системный DNS */
-        if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
+        if (name === 'dnscrypt' && dnsApplied) { void disableSystemDns(true); return; }
         supervisor.stop(name);
     } else {
         if (name === 'dnscrypt') prepareDnsInterceptBeforeStart();
         supervisor.start(name);
     }
 });
-ipcMain.on('modules:start', (_e, name) => {
+ipcMain.on('modules:start', (_e, name: DaemonName) => {
     if (!supervisor || !supervisor.specs[name]) return;   // SEC-13: как в toggle
     if (name === 'dnscrypt') prepareDnsInterceptBeforeStart();
     supervisor.start(name);
 });
-ipcMain.on('modules:stop', (_e, name) => {
+ipcMain.on('modules:stop', (_e, name: DaemonName) => {
     if (!supervisor || !supervisor.specs[name]) return;   // SEC-13: крошивший main
-    if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
+    if (name === 'dnscrypt' && dnsApplied) { void disableSystemDns(true); return; }
     supervisor.stop(name);
 });
 
@@ -939,7 +956,7 @@ ipcMain.handle('resolvers:list', () => {
  * показываем байты до него. Файл не трогаем вовсе. */
 let queryLogOffset = 0;
 
-ipcMain.handle('querylog:get', (_e, { filter } = {}) => {
+ipcMain.handle('querylog:get', (_e, { filter }: { filter?: string } = {}) => {
     const file = path.join(configDirGlobal || '', 'query.log');
     let content = '';
     let start = 0;
@@ -975,18 +992,27 @@ ipcMain.on('querylog:clear', () => {
 
 ipcMain.handle('adapters:list', () => {
     try { return { ok: true, list: netmode.getUpPhysicalAdapters() }; }
-    catch (e) { return { ok: false, error: e.message }; }
+    catch (e) { return { ok: false, error: (e as Error).message }; }
 });
 
 /* ---------- авто-обновление (GitHub Releases) ---------- */
 const REPO_RELEASES = `https://github.com/${updater.REPO}/releases/latest`;
-const updateState = {
+interface UpdateState {
+    available: boolean;
+    version: string | null;
+    downloading: boolean;
+    percent: number;
+    setupUrl: string | null;
+    portableUrl: string | null;
+    sumsUrl: string | null;
+}
+const updateState: UpdateState = {
     available: false, version: null,
     downloading: false, percent: 0,
     setupUrl: null, portableUrl: null, sumsUrl: null,
 };
 
-async function checkForUpdates(manual = false) {
+async function checkForUpdates(manual = false): Promise<void> {
     if (!settings.autoUpdate && !manual) return;
     try {
         const rel = await updater.latestRelease();
@@ -1001,7 +1027,7 @@ async function checkForUpdates(manual = false) {
             sendToRenderer('modules:event', { text: `У вас последняя версия (v${app.getVersion()})` });
         }
     } catch (e) {
-        if (manual) sendToRenderer('modules:event', { text: `Проверка обновлений не удалась: ${e.message}` });
+        if (manual) sendToRenderer('modules:event', { text: `Проверка обновлений не удалась: ${(e as Error).message}` });
     }
 }
 
@@ -1010,7 +1036,7 @@ async function checkForUpdates(manual = false) {
  * перезапускаемся через cmd-сценарий.
  * NSIS: ждём выхода Invis -> тихая установка (/S) -> автозапуск.
  * Portable: переименовываем запущенный exe (Windows это разрешает), подкладываем новый. */
-async function startUpdate() {
+async function startUpdate(): Promise<void> {
     if (!updateState.available || updateState.downloading) return;
     if (!app.isPackaged) {
         shell.openExternal(REPO_RELEASES);
@@ -1041,7 +1067,7 @@ async function startUpdate() {
     } catch (e) {
         updateState.downloading = false;
         try { fs.unlinkSync(dest); } catch (_e) { /* не создан */ }
-        sendToRenderer('update:progress', { error: e.message });
+        sendToRenderer('update:progress', { error: (e as Error).message });
         return;
     }
 
@@ -1056,9 +1082,9 @@ async function startUpdate() {
     } catch (e) {
         updateState.downloading = false;
         try { fs.unlinkSync(dest); } catch (_e) { /* уже нет */ }
-        netmodeLog(`Обновление v${updateState.version}: проверка целостности не пройдена (${e.message})`);
+        netmodeLog(`Обновление v${updateState.version}: проверка целостности не пройдена (${(e as Error).message})`);
         sendToRenderer('update:progress', {
-            error: `Проверка целостности не пройдена (${e.message}) — установка отменена`,
+            error: `Проверка целостности не пройдена (${(e as Error).message}) — установка отменена`,
         });
         return;
     }
@@ -1069,12 +1095,12 @@ async function startUpdate() {
      * лаунчер лежит в PORTABLE_EXECUTABLE_DIR (раньше обновляли не тот файл) */
     let exe = process.execPath;
     if (portable) {
-        exe = path.join(process.env.PORTABLE_EXECUTABLE_DIR,
+        exe = path.join(process.env.PORTABLE_EXECUTABLE_DIR as string,
             process.env.PORTABLE_EXECUTABLE_FILENAME || 'Invis.exe');
     }
     const dir = path.dirname(exe);
-    const q = (s) => `"${s}"`;
-    let cmdLines;
+    const q = (s: string) => `"${s}"`;
+    let cmdLines: string[];
     if (portable) {
         cmdLines = [
             '@echo off',
@@ -1113,16 +1139,10 @@ async function startUpdate() {
 }
 
 /* ---------- IPC: диагностика, Tor NEWNYM, мосты, ярлыки ---------- */
-const { shell } = require('electron');
-const ipinfo = require('./lib/ipinfo');
-const onionoo = require('./lib/onionoo');
-const torspeed = require('./lib/torspeed');
-const netspeed = require('./lib/netspeed');
-
 ipcMain.handle('diag:run', async () => {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
     const pending = 'проверяю…';
-    const res = {
+    const res: Record<string, { ok: boolean; detail: string }> = {
         dns: { ok: false, detail: supervisor?.isRunning('dnscrypt') ? pending : 'не запущен' },
         tor: { ok: false, detail: supervisor?.isRunning('tor') ? pending : 'не запущен' },
         i2p: { ok: false, detail: supervisor?.isRunning('i2p') ? pending : 'не запущен' },
@@ -1132,7 +1152,7 @@ ipcMain.handle('diag:run', async () => {
     const push = () => sendToRenderer('diag:result', res);
     push(); // первый кадр — сразу видно, что проверка идёт
 
-    const jobs = [];
+    const jobs: Array<Promise<unknown>> = [];
     if (supervisor?.isRunning('dnscrypt')) {
         jobs.push(diag.dnsQueryTcp(listen).then((v) => {
             res.dns = { ...v, detail: `${v.detail} · порт ${listen}` };
@@ -1170,19 +1190,20 @@ ipcMain.handle('diag:run', async () => {
     return res;
 });
 
-ipcMain.on('tor:newip', async () => {
+ipcMain.on('tor:newip', () => {
     if (!supervisor?.isRunning('tor')) {
         sendToRenderer('modules:event', { text: 'Tor не запущен — IP менять нечего' });
         return;
     }
-    const r = await torctl.newIp(path.join(store.baseDir(), 'data', 'tor'));
-    sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка — новый IP получат НОВЫЕ соединения; открытые вкладки могут показывать старый IP до обновления страницы (F5)' : `Tor NEWNYM: ${r.detail}` });
+    void torctl.newIp(path.join(store.baseDir(), 'data', 'tor')).then((r) => {
+        sendToRenderer('modules:event', { text: r.ok ? 'Tor: запрошена новая цепочка — новый IP получат НОВЫЕ соединения; открытые вкладки могут показывать старый IP до обновления страницы (F5)' : `Tor NEWNYM: ${r.detail}` });
+    });
 });
 
-ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(transport || 'obfs4'));
+ipcMain.handle('bridges:fetch', async (_e, transport: string) => bridges.fetchBridges(transport || 'obfs4'));
 
 /* ---------- Tor: страны выхода (Onionoo) и тест скорости ---------- */
-ipcMain.handle('tor:countries', async (_e, { force } = {}) =>
+ipcMain.handle('tor:countries', async (_e, { force }: { force?: boolean } = {}) =>
     onionoo.exitCountries(store.baseDir(), { force }));
 
 ipcMain.on('proxy:copy', () => {
@@ -1190,12 +1211,12 @@ ipcMain.on('proxy:copy', () => {
     sendToRenderer('modules:event', { text: 'Скопировано: socks5://127.0.0.1:9050' });
 });
 
-ipcMain.handle('net:speed', (_e, { viaTor } = {}) => netspeed.measure({ viaTor: Boolean(viaTor) }));
+ipcMain.handle('net:speed', (_e, { viaTor }: { viaTor?: boolean } = {}) => netspeed.measure({ viaTor: Boolean(viaTor) }));
 
 ipcMain.handle('tor:exitinfo', async () => {
     if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Tor не запущен' };
     try { return await torspeed.exitInfo(); }
-    catch (e) { return { ok: false, error: e.message }; }
+    catch (e) { return { ok: false, error: (e as Error).message }; }
 });
 
 ipcMain.handle('tor:speedtest', async () => {
@@ -1206,27 +1227,17 @@ ipcMain.handle('tor:speedtest', async () => {
         const r = await torspeed.fullTest();
         return { ok: r.isTor !== false, ...r };
     } catch (e) {
-        return { ok: false, error: e.message };
+        return { ok: false, error: (e as Error).message };
     }
 });
 
 ipcMain.handle('update:state', () => ({ ...updateState, currentVersion: app.getVersion(), autoUpdate: Boolean(settings.autoUpdate), installSupported: app.isPackaged }));
-ipcMain.on('update:check', () => checkForUpdates(true));
-ipcMain.on('update:install', () => startUpdate());
+ipcMain.on('update:check', () => { void checkForUpdates(true); });
+ipcMain.on('update:install', () => { void startUpdate(); });
 
 ipcMain.on('open:console-i2p', () => shell.openExternal('http://127.0.0.1:7070'));
 ipcMain.on('open:logs', () => shell.openPath(path.join(store.baseDir(), 'logs')));
 ipcMain.on('open:github', () => shell.openExternal('https://github.com/javierpenadev/Invis'));
-
-/* ---------- нативные диалоги (общие) ---------- */
-ipcMain.handle('dialog:save', async (_e, { defaultName, extensions, label }) => {
-    const res = await dialog.showSaveDialog(win, {
-        title: 'Сохранить',
-        defaultPath: defaultName,
-        filters: [{ name: label || extensions[0].toUpperCase(), extensions }],
-    });
-    return res.canceled ? null : res.filePath;
-});
 
 app.on('before-quit', (e) => {
     quitting = true;
