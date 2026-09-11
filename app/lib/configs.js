@@ -27,12 +27,12 @@ function writeAtomic(file, data) {
     fs.renameSync(tmp, file);
 }
 
-/* Имена pluggable-транспорта → исполняемые файлы в bin/tor/.../pluggable_transports */
+/* Имена pluggable-транспортов → исполняемые файлы в bin/tor/.../pluggable_transports.
+ * В комплекте только то, что реально лежит в bin (CLEAN-4): snowflake/webtunnel
+ * не бандлились и генерировали битый torrc. */
 const BRIDGE_PLUGINS = {
     obfs4: 'lyrebird.exe',
-    snowflake: 'snowflake-client.exe',
     conjure: 'conjure-client.exe',
-    webtunnel: 'webtunnel-client.exe',
 };
 
 /* Tor (mingw-сборка) не умеет в не-ASCII пути: «Couldn't create private data
@@ -77,9 +77,15 @@ function torrc({ dataDir, bridges, pluginDir }) {
         if (clean.length && /^[A-Za-z0-9_-]+$/.test(transport)) {
             const plugin = BRIDGE_PLUGINS[transport] || `${transport}-client.exe`;
             const pluginPath = fwd(torPath(path.join(pluginDir || '', plugin)));
-            lines.push('UseBridges 1');
-            lines.push(`ClientTransportPlugin ${transport} exec "${pluginPath}"`);
-            for (const l of clean) lines.push(`Bridge ${l}`);
+            /* Плагина нет (не забандлен/опечатка) — мосты не пишем вовсе:
+             * битый ClientTransportPlugin валит весь Tor (CLEAN-4) */
+            if (fs.existsSync(path.join(pluginDir || '', plugin))) {
+                lines.push('UseBridges 1');
+                lines.push(`ClientTransportPlugin ${transport} exec "${pluginPath}"`);
+                for (const l of clean) lines.push(`Bridge ${l}`);
+            } else {
+                lines.push(`# плагин транспорта «${transport}» (${plugin}) не найден — мосты отключены`);
+            }
         }
     }
     /* Страны выхода: ограничиваем выходные узлы выбранными странами.
