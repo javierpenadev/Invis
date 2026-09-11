@@ -3,16 +3,57 @@
  * Не зависит от Electron. Состояния: 'off' | 'busy' | 'on' | 'error'.
  * Готовность: tor — по «Bootstrapped 100%», остальные — проверкой порта.
  */
-const { spawn, execFile } = require('child_process');
-const net = require('net');
-const fs = require('fs');
-const path = require('path');
-const { PORTS, shortPathSync } = require('./configs');
+import { spawn, execFile, ChildProcess } from 'child_process';
+import * as net from 'net';
+import * as fs from 'fs';
+import * as path from 'path';
+import { PORTS, shortPathSync } from './configs';
+import { DaemonName } from '../types';
 
-function probePort(port, timeout = 400) {
+export type DaemonState = 'off' | 'busy' | 'on' | 'error';
+
+export interface ModuleStatus {
+    state: DaemonState;
+    status: string;
+}
+
+interface BaseSpec {
+    label: string;
+    exe: string;
+    args: string[];
+    cwd?: string;
+}
+
+interface BootstrapSpec extends BaseSpec {
+    readiness: 'bootstrap';
+}
+
+interface PortProbeSpec extends BaseSpec {
+    readiness?: undefined;
+    probePort: number;
+    portSuffix?: string;
+}
+
+export type DaemonSpec = BootstrapSpec | PortProbeSpec;
+
+interface ProcessSlot {
+    proc: ChildProcess | null;
+    state: DaemonState;
+    status: string;
+    stopping: boolean;
+    stopPromise: Promise<void> | null;
+}
+
+export interface OnStatePayload {
+    name: DaemonName;
+    state: DaemonState;
+    status: string;
+}
+
+export function probePort(port: number, timeout = 400): Promise<boolean> {
     return new Promise((resolve) => {
         const sock = net.connect({ host: '127.0.0.1', port });
-        const done = (ok) => { sock.destroy(); resolve(ok); };
+        const done = (ok: boolean) => { sock.destroy(); resolve(ok); };
         sock.setTimeout(timeout);
         sock.once('connect', () => done(true));
         sock.once('timeout', () => done(false));
@@ -21,28 +62,31 @@ function probePort(port, timeout = 400) {
 }
 
 /* Опрашивает порт, пока не откроется или не выйдет время */
-function waitReady(port, { timeout = 30000, interval = 500 } = {}) {
+export function waitReady(port: number, { timeout = 30000, interval = 500 } = {}): Promise<boolean> {
     return new Promise((resolve) => {
         const started = Date.now();
-        const tick = async () => {
+        const tick = async (): Promise<void> => {
             if (await probePort(port, 400)) { resolve(true); return; }
             if (Date.now() - started >= timeout) { resolve(false); return; }
-            setTimeout(tick, interval);
+            setTimeout(() => { void tick(); }, interval);
         };
-        tick();
+        void tick();
     });
 }
 
-class DaemonSupervisor {
-    /**
-     * opts:
-     *   binDir      — каталог с bin/{tor,dnscrypt,i2pd}
-     *   configDir   — каталог сгенерированных конфигов
-     *   logDir      — каталог логов сессии
-     *   i2pdDataDir — каталог данных i2pd (внутри сертификаты)
-     *   onState     — callback({name, state, status})
-     */
-    constructor({ binDir, configDir, logDir, i2pdDataDir, dnscryptPort = PORTS.dnscrypt, onState }) {
+export class DaemonSupervisor {
+    readonly specs: Record<DaemonName, DaemonSpec>;
+    readonly list: DaemonName[];
+    state: Record<DaemonName, ProcessSlot>;
+
+    constructor({ binDir, configDir, logDir, i2pdDataDir, dnscryptPort = PORTS.dnscrypt, onState }: {
+        binDir: string;
+        configDir: string;
+        logDir: string;
+        i2pdDataDir: string;
+        dnscryptPort?: number;
+        onState?: (payload: OnStatePayload) => void;
+    }) {
         this.onState = onState || (() => {});
         this.logDir = logDir;
         /* i2pd: datadir/certsdir только через CLI — ключ datadir в ini игнорируется.
@@ -74,13 +118,19 @@ class DaemonSupervisor {
                 probePort: PORTS.i2pHttp,
             },
         };
-        this.list = Object.keys(this.specs);
-        this.state = {};
-        for (const name of this.list) this.state[name] = { proc: null, state: 'off', status: 'остановлен', stopping: false };
+        this.list = Object.keys(this.specs) as DaemonName[];
+        this.state = {} as Record<DaemonName, ProcessSlot>;
+        for (const name of this.list) {
+            this.state[name] = { proc: null, state: 'off', status: 'остановлен', stopping: false, stopPromise: null };
+        }
         this.logs = {};
     }
 
-    _set(name, state, status) {
+    private onState: (payload: OnStatePayload) => void;
+    private logDir: string;
+    private logs: Record<string, fs.WriteStream | null>;
+
+    _set(name: DaemonName, state: DaemonState, status: string): void {
         const st = this.state[name];
         if (st.state === state && st.status === status) return;
         st.state = state;
@@ -88,9 +138,9 @@ class DaemonSupervisor {
         this.onState({ name, state, status });
     }
 
-    isRunning(name) { return Boolean(this.state[name]?.proc); }
+    isRunning(name: DaemonName): boolean { return Boolean(this.state[name]?.proc); }
 
-    start(name) {
+    start(name: DaemonName): void {
         const st = this.state[name];
         const spec = this.specs[name];
         if (!spec) return;
@@ -112,12 +162,11 @@ class DaemonSupervisor {
         st.status = 'запуск…';
         this.onState({ name, state: st.state, status: st.status });
 
-
         /* Лог сессии: перезаписывается при каждом старте */
         fs.mkdirSync(this.logDir, { recursive: true });
         this.logs[name] = fs.createWriteStream(path.join(this.logDir, `${name}.log`), { flags: 'w' });
 
-        let proc;
+        let proc: ChildProcess;
         try {
             proc = spawn(spec.exe, spec.args, {
                 cwd: spec.cwd || path.dirname(spec.exe),
@@ -125,20 +174,20 @@ class DaemonSupervisor {
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
         } catch (e) {
-            this._set(name, 'error', `не удалось запустить: ${e.message}`);
+            this._set(name, 'error', `не удалось запустить: ${(e as Error).message}`);
             return;
         }
         st.proc = proc;
 
-        const onLine = (line) => this._handleLine(name, line.toString().trim());
-        const pipe = (chunk) => {
-            if (this.logs[name]) this.logs[name].write(chunk);
+        const onLine = (line: string) => this._handleLine(name, line.trim());
+        const pipe = (chunk: Buffer) => {
+            this.logs[name]?.write(chunk);
             for (const line of String(chunk).split(/\r?\n/)) if (line.trim()) onLine(line);
         };
-        proc.stdout.on('data', pipe);
-        proc.stderr.on('data', pipe);
+        proc.stdout?.on('data', pipe);
+        proc.stderr?.on('data', pipe);
 
-        proc.on('error', (err) => {
+        proc.on('error', (err: Error & { code?: string | number }) => {
             if (this.state[name].proc === proc) this._set(name, 'error', `не удалось запустить: ${err.code || err.message}`);
         });
 
@@ -171,7 +220,7 @@ class DaemonSupervisor {
                 }
             }, 240000);
         } else {
-            waitReady(spec.probePort).then((ok) => {
+            void waitReady(spec.probePort).then((ok) => {
                 if (this.state[name].proc === proc && this.state[name].state === 'busy') {
                     if (ok) this._set(name, 'on', 'работает' + (spec.portSuffix || ''));
                     else this._set(name, 'error', 'порт не открылся за 30 с');
@@ -181,13 +230,15 @@ class DaemonSupervisor {
     }
 
     /* Смена listen-порта dnscrypt (переключение системного DNS) */
-    setDnscryptPort(port) {
-        this.specs.dnscrypt.probePort = port;
-        this.specs.dnscrypt.portSuffix = ` (:${port})`;
+    setDnscryptPort(port: number): void {
+        const spec = this.specs.dnscrypt;
+        if ('probePort' in spec) {
+            spec.probePort = port;
+            spec.portSuffix = ` (:${port})`;
+        }
     }
 
-
-    _handleLine(name, line) {
+    _handleLine(name: DaemonName, line: string): void {
         const spec = this.specs[name];
         const st = this.state[name];
         if (spec.readiness === 'bootstrap') {
@@ -198,23 +249,23 @@ class DaemonSupervisor {
                 else if (st.state === 'busy') this._set(name, 'busy', `${pct}%`);
             }
             if (/^\[err\]/i.test(line) && st.state === 'busy') this._set(name, 'error', line.slice(0, 120));
-        } else if (name === 'dnscrypt') {
+        } else if (name === 'dnscrypt' && 'probePort' in spec) {
             if (/Now listening to/i.test(line) && st.state === 'busy') {
-                probePort(spec.probePort, 1500).then((ok) => {
+                void probePort(spec.probePort, 1500).then((ok) => {
                     if (ok && st.state === 'busy') this._set(name, 'on', 'работает' + (spec.portSuffix || ''));
                 });
             }
         }
     }
 
-    stop(name) {
+    stop(name: DaemonName): Promise<void> {
         const st = this.state[name];
         if (!st.proc) { this._set(name, 'off', 'остановлен'); return Promise.resolve(); }
         if (st.stopPromise) return st.stopPromise;
         st.stopping = true;
         this._set(name, 'busy', 'остановка…');
         const proc = st.proc;
-        st.stopPromise = new Promise((resolve) => {
+        st.stopPromise = new Promise<void>((resolve) => {
             let exited = false;
             const done = () => { if (!exited) { exited = true; resolve(); } };
             /* Резолвимся по 'exit', а не по завершению taskkill: 'exit' прилетает
@@ -238,18 +289,18 @@ class DaemonSupervisor {
         return st.stopPromise;
     }
 
-    startEnabled(autostart) {
+    startEnabled(autostart?: { dnscrypt?: boolean; tor?: boolean; i2p?: boolean }): DaemonName[] {
         const names = this.list.filter((n) => autostart?.[n]);
         names.forEach((n) => this.start(n));
         return names;
     }
 
-    async stopAll() {
+    async stopAll(): Promise<void> {
         await Promise.all(this.list.map((n) => this.stop(n)));
     }
 
-    status() {
-        const out = {};
+    status(): Record<DaemonName, ModuleStatus> {
+        const out = {} as Record<DaemonName, ModuleStatus>;
         for (const name of this.list) {
             const { state, status } = this.state[name];
             out[name] = { state, status };
@@ -257,5 +308,3 @@ class DaemonSupervisor {
         return out;
     }
 }
-
-module.exports = { DaemonSupervisor, probePort, waitReady };
