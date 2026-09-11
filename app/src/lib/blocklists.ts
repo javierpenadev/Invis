@@ -91,12 +91,13 @@ export async function ensure(configDir: string, name: string): Promise<{ dest: s
  * Возвращает null, если блокировать нечего. */
 export function composeBlockedNames(
     configDir: string,
-    cfg: { blockBrowserDoh?: boolean; presets?: Record<string, boolean> } = {},
+    cfg: { blockBrowserDoh?: boolean; presets?: object } = {},
 ): string | null {
     const parts = [];
     if (cfg.blockBrowserDoh !== false) parts.push('# canary: отключаем встроенный DoH браузеров\nuse-application-dns.net');
+    const presets = (cfg.presets || {}) as Record<string, boolean>;
     for (const key of Object.keys(PRESETS)) {
-        if (!cfg.presets || !cfg.presets[key]) continue;
+        if (!presets[key]) continue;
         try {
             const text = fs.readFileSync(path.join(configDir, `preset-${key}.txt`), 'utf8');
             parts.push(`# preset: ${key}\n${text}`);

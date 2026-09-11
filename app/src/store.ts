@@ -3,11 +3,12 @@
  * Обычная установка — %APPDATA%/Invis/settings.json (app.getPath('userData')),
  * портативный режим (INVIS_PORTABLE=1) — settings.json рядом с exe.
  */
-const { app } = require('electron');
-const fs = require('fs');
-const path = require('path');
+import { app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Settings, SettingsPatch } from './types';
 
-const DEFAULTS = {
+export const DEFAULTS: Settings = {
     launchWithWindows: false,          // запускать вместе с Windows
     closeToTray: true,                 // при закрытии сворачивать в трей
     systemDns: false,                  // перехват системного DNS (порт 53, нужен админ)
@@ -40,54 +41,62 @@ const DEFAULTS = {
         newIpMinutes: 0,               // авто-смена IP (NEWNYM), 0 = выкл
         useBridges: false,             // использовать мосты (обход блокировок)
         bridgesText: '',               // строки мостов, по одной на строку.
-                                       // Чувствительно (SEC-11): хранится в
+                                       // Чувствительно (SEC-11): хранятся в
                                        // settings.json ОТКРЫТО — не выкладывай
                                        // settings.json и не синхронизируй его
         exitCountries: [],             // страны выхода (ISO-коды), пусто = любая
     },
 };
 
-let filePath = null;
+let filePath: string | null = null;
 
 /* Базовый каталог данных: userData или каталог exe в портативном режиме.
  * Портативность определяет либо INVIS_PORTABLE (вручную), либо
  * PORTABLE_EXECUTABLE_DIR — её задаёт electron-builder в portable-сборке. */
-function baseDir() {
+export function baseDir(): string {
     return app.isPackaged && (process.env.INVIS_PORTABLE || process.env.PORTABLE_EXECUTABLE_DIR)
         ? path.dirname(process.execPath)
         : app.getPath('userData');
 }
 
-function storeFile() {
+function storeFile(): string {
     if (!filePath) filePath = path.join(baseDir(), 'settings.json');
     return filePath;
 }
 
-function deepMerge(base, patch) {
-    for (const [key, value] of Object.entries(patch || {})) {
+/* Внутри — структурный merge над unknown: рекурсия с отбрасыванием
+ * неизвестных ключей и несовпадающих типов; снаружи — типобезопасно. */
+function deepMergeImpl(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+    for (const [key, value] of Object.entries(patch)) {
         /* hasOwn, а не 'in': 'in' истинен и для __proto__/toString —
          * рекурсия ушла бы в прототип (SEC-10) */
-        if (!Object.hasOwn(base, key)) continue;            // неизвестные ключи отбрасываем
+        if (!Object.hasOwn(base, key)) continue;           // неизвестные ключи отбрасываем
+        const cur = base[key];
         if (value && typeof value === 'object' && !Array.isArray(value)
-                && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
-            deepMerge(base[key], value);                   // объекты — глубоко
-        } else if (typeof value === typeof base[key]) {    // скаляры — только при совпадении типов
+                && cur && typeof cur === 'object' && !Array.isArray(cur)) {
+            deepMergeImpl(cur as Record<string, unknown>, value as Record<string, unknown>); // объекты — глубоко
+        } else if (typeof value === typeof cur) {          // скаляры — только при совпадении типов
             base[key] = value;
         }
     }
     return base;
 }
 
+export function deepMerge(base: Settings, patch: SettingsPatch): Settings {
+    return deepMergeImpl(base as unknown as Record<string, unknown>,
+        patch as Record<string, unknown>) as unknown as Settings;
+}
+
 /* Возвращает настройки, объединённые с дефолтами (неизвестные ключи игнорируются). */
-function load() {
-    let parsed = {};
+export function load(): Settings {
+    let parsed: SettingsPatch = {};
     try {
         parsed = JSON.parse(fs.readFileSync(storeFile(), 'utf8'));
     } catch (e) { /* нет файла / битый JSON — используем дефолты */ }
-    return deepMerge(JSON.parse(JSON.stringify(DEFAULTS)), parsed);
+    return deepMerge(JSON.parse(JSON.stringify(DEFAULTS)) as Settings, parsed);
 }
 
-function save(settings) {
+export function save(settings: Settings): void {
     fs.mkdirSync(path.dirname(storeFile()), { recursive: true });
     /* Атомарная запись через tmp+rename: прямая перезапись могла ловить
      * блокировку (антивирус) и настройка «не сохранялась» */
@@ -95,5 +104,3 @@ function save(settings) {
     fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
     fs.renameSync(tmp, storeFile());
 }
-
-module.exports = { DEFAULTS, load, save, deepMerge, baseDir, getPath: storeFile };
