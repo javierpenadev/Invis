@@ -3,6 +3,8 @@
 Дата аудита: 2026-09-11 · База: v1.9.4 (HEAD `67868b5`, ветка `main`, чистое дерево)
 Объём: ~4200 LOC JS, 25 файлов (main 1115, renderer 930+271+66, lib 14 модулей, 5 tools), 0 runtime-зависимостей, Electron 44, CJS.
 
+> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены SEC-2, SEC-3, SEC-4 (вариант Б), BUG-1..BUG-11 и P2 «комментарий-сирота»; частично SEC-8 (dns-restore и update-скрипты уже в mkdtemp, остался proxy-refresh). Решение по обновлятору: вариант Б. Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
+
 Пути: `main.js` = `app/main.js`, `lib/*` = `app/lib/*`, `js/*` = `app/js/*` (если не указано иное).
 
 ---
@@ -59,20 +61,19 @@ Kill switch (тасклист 3.3), просмотрщик логов демон
   3. `win.webContents.setWindowOpenHandler(() => ({action:'deny'}))`; `will-navigate` — только свой `file://`.
   4. Внешние ссылки (GitHub, консоль I2P) — только через `shell.openExternal` из main.
   5. Прогнать весь smoke (`APP_SMOKE=5000`) и живое тестирование: все ~35 IPC-каналов.
-- [ ] **SEC-2. PowerShell-инъекция через `dns-backup.json` → эскалация под UAC.** lib/netmode.js:46-49 (адреса интерполируются в PS-строку без экранирования), main.js:258-266 (elevated restore-скрипт из тех же данных), main.js:215-224 (`JSON.parse` бэкапа без валидации схемы). Эксплойт: малварь того же юзера пишет `%APPDATA%/Invis/dns-backup.json` → юзер принимает UAC «Invis» → код от админа.
-  Фикс: строгая валидация адресов `/^[0-9a-fA-F:.]{2,45}$/` и схемы бэкапа (массив `{alias, addresses:string[]}`); передавать адреса аргументами (execFileSync), не строкой; temp-файл со случайным именем.
-- [ ] **SEC-3. Валидация/экранирование Onionoo-данных (XSS-цепочка к SEC-1).** lib/onionoo.js:62-63 (cc проверяется только по длине), :51-56,73 (кэш читается без валидации), js/app.js:513-515 и :659-660 (`${cc}`, `${p.cc}`, `${p.label}` без `StringUtils.escape`), :532 (`r.error` в innerHTML). Фикс: `/^[A-Z]{2}$/` на свежем **и** кэш-пути; `Number()` для count/mbps; экранировать всё в renderCountries/renderQuickCountries.
-
+- [x] **SEC-2. PowerShell-инъекция через `dns-backup.json` → эскалация под UAC.** lib/netmode.js:46-49 (адреса интерполируются в PS-строку без экранирования), main.js:258-266 (elevated restore-скрипт из тех же данных), main.js:215-224 (`JSON.parse` бэкапа без валидации схемы). Эксплойт: малварь того же юзера пишет `%APPDATA%/Invis/dns-backup.json` → юзер принимает UAC «Invis» → код от админа.
+  Фикс: строгая валидация адресов `/^[0-9a-fA-F:.]{2,45}$/` и схемы бэкапа (массив `{alias, addresses:string[]}`); передавать адреса аргументами (execFileSync), не строкой; temp-файл со случайным именем. ✅ Сделано (sanitizeDnsBackup, netmode.isValidIp, mkdtemp).
+- [x] **SEC-3. Валидация/экранирование Onionoo-данных (XSS-цепочка к SEC-1).** lib/onionoo.js:62-63 (cc проверяется только по длине), :51-56,73 (кэш читается без валидации), js/app.js:513-515 и :659-660 (`${cc}`, `${p.cc}`, `${p.label}` без `StringUtils.escape`), :532 (`r.error` в innerHTML). Фикс: `/^[A-Z]{2}$/` на свежем **и** кэш-пути; `Number()` для count/mbps; экранировать всё в renderCountries/renderQuickCountries. ✅ Сделано (sanitizeCountries + escape в app.js).
 ### P1 — высокие
 
-- [ ] **SEC-4. Обновлятор исполняет непроверенный exe.** lib/updater.js:39-81 (URL из GitHub API, скачивание без хэша), main.js:922-974 (тихая установка через `invis-update.cmd`/`.vbs` с предсказуемыми именами в %TEMP%). Два варианта: (а) проверять SHA-256 из подписанного `latest.json` / Authenticod-подпись (`winVerifyTrust`) перед запуском; (б) **упрощение** — убрать тихую установку, оставить «скачать + открыть страницу релизов». Предсказуемые имена temp-скриптов → `fs.mkdtemp`.
+- [x] **SEC-4. Обновлятор исполняет непроверенный exe.** lib/updater.js:39-81 (URL из GitHub API, скачивание без хэша), main.js:922-974 (тихая установка через `invis-update.cmd`/`.vbs` с предсказуемыми именами в %TEMP%). ✅ Сделано, вариант Б: тихая установка только после сверки SHA-256 с `SHA256SUMS.txt` релиза (нет sums — установка блокируется, показывается ссылка на страницу релизов); temp-скрипты в mkdtemp-каталоге; `npm run checksums` генерирует суммы для публикации.
 - [ ] **SEC-5. fetch-bins без проверки хэшей/подписей (supply chain).** tools/fetch-bins.js:16-38,57-75 — только HTTPS + проверка существования exe; тасклист 1.1 обещал «фиксацию версий и хэшей». Все три проекта публикуют SHA256SUMS/minisign — добавить проверку, валидировать bin/ перед упаковкой.
 - [ ] **SEC-6. «Доступ из LAN» = открытый резолвер + слишком широкие firewall-правила.** configs.js:100-104 (бинд 0.0.0.0/[::]), main.js:348-367 (правила для UDP/TCP 53 на все профили без remoteip/program; и вообще порт 53 открыт даже когда dnscrypt слушает 9053). Фикс: `profile=private,domain`, `remoteip=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12`, `program=<dnscrypt.exe>`, открывать реально настроенный порт, слушать LAN-IP вместо 0.0.0.0.
 - [ ] **SEC-7. IP выхода по http://ip-api.com** (lib/torspeed.js:71,91) — вредоносный exit может подменить «текущую страну/IP» — подрыв собственного индикатора приватности. Перейти на HTTPS (check.torproject.org/api/ip + https-geoip) или явно пометить как декоративные данные.
 
 ### P2 — средние
 
-- [ ] **SEC-8. Предсказуемые скрипты в %TEMP% с `-ExecutionPolicy Bypass`.** lib/proxy.js:20-31 (`invis-proxy-refresh.ps1`), main.js:261-267 (elevated), main.js:963-970 (cmd/vbs) — TOCTOU подмены тем же юзером. Фикс: `fs.mkdtemp`/случайные имена, удалять сразу после использования.
+- [ ] **SEC-8. Предсказуемые скрипты в %TEMP% с `-ExecutionPolicy Bypass`.** lib/proxy.js:20-31 (`invis-proxy-refresh.ps1`), main.js:261-267 (elevated), main.js:963-970 (cmd/vbs) — TOCTOU подмены тем же юзером. Фикс: `fs.mkdtemp`/случайные имена, удалять сразу после использования. 🔶 Частично: dns-restore и update cmd/vbs уже в mkdtemp (SEC-2/SEC-4), остался `invis-proxy-refresh.ps1`.
 - [ ] **SEC-9. Неатомарная запись torrc/toml/i2pd.conf** (configs.js:205-221) — рестарт демона может прочитать полусконфиг. tmp+rename как в store.js:89-91.
 - [ ] **SEC-10. `deepMerge` — форма прототипного загрязнения.** store.js:63-74: `key in base` истинно для `__proto__`; сейчас спасает строгая проверка типов, но это минус один рефакторинг до дыры. `Object.hasOwn(base, key)`.
 - [ ] **SEC-11. `tor.bridgesText` (мосты — чувствительная инфа о цензурном обходе) в открытом settings.json**; в portable-режиме — рядом с exe. Минимум — задокументировать; в идеале — DPAPI для bridgesText.
@@ -89,20 +90,20 @@ CSP `default-src 'self'` (index.html:5); Tor CookieAuthentication/ClientOnly/NoE
 
 ### P0 — ломает функциональность
 
-- [ ] **BUG-1. `'C:\Windows'` в netspeed.js:9** — `\W` не эскейпится, fallback-путь = `C:Windows\...` (ENOENT + примитив для подсовывания бинарника). Правильно в torspeed.js:8 — скопировать оттуда. Чинится одной строкой.
-- [ ] **BUG-2. Частичная выгрузка блок-листа кэшируется навсегда.** lib/blocklists.js:29-33,42 — `createWriteStream(dest)` создаёт файл сразу; обрыв = навсегда обрезанный `preset-*.txt` (нет timeout на https.get — зависший сервер вешает весь флоу включения пресета, main.js:743-754). Фикс: качать в `.part`, rename по успеху, удалять при ошибке, добавить timeout.
-- [ ] **BUG-3. Десинк чекбокса системного DNS при неудачном включении.** main.js:669-707 сохраняет `systemDns:false` и шлёт `settings:changed`, но `pendingKeys` в js/app.js:113-155 «съедает» апдейт — галка остаётся включённой до рестарта. Фикс: удалять ключ из pendingKeys **до** применения пришедших настроек.
-- [ ] **BUG-4. Модуль навсегда зависает в «остановка…» при неудачном kill.** lib/daemons.js:202-220 — 5-сек failsafe снимает `stopPromise`, но зомби `st.proc` остаётся; очередь стартов блокируется (`if (st.proc) return`, daemons.js:104). Фикс: после failsafe принудительно чистить `st.proc`/эмитить состояние.
-- [ ] **BUG-5. Portable-самообновление заменяет не тот exe.** main.js:942-951 — у portable-таргета `process.execPath` = временный распакованный exe; обновление кладётся в temp, лаунчер остаётся старым. То же в очистке `Invis.exe.old` (main.js:159-161). Использовать `PORTABLE_EXECUTABLE_DIR`/`PORTABLE_EXECUTABLE_FILENAME`.
+- [x] **BUG-1. `'C:\Windows'` в netspeed.js:9** — `\W` не эскейпится, fallback-путь = `C:Windows\...` (ENOENT + примитив для подсовывания бинарника). Правильно в torspeed.js:8 — скопировать оттуда. Чинится одной строкой.
+- [x] **BUG-2. Частичная выгрузка блок-листа кэшируется навсегда.** lib/blocklists.js:29-33,42 — `createWriteStream(dest)` создаёт файл сразу; обрыв = навсегда обрезанный `preset-*.txt` (нет timeout на https.get — зависший сервер вешает весь флоу включения пресета, main.js:743-754). Фикс: качать в `.part`, rename по успеху, удалять при ошибке, добавить timeout.
+- [x] **BUG-3. Десинк чекбокса системного DNS при неудачном включении.** main.js:669-707 сохраняет `systemDns:false` и шлёт `settings:changed`, но `pendingKeys` в js/app.js:113-155 «съедает» апдейт — галка остаётся включённой до рестарта. Фикс: удалять ключ из pendingKeys **до** применения пришедших настроек.
+- [x] **BUG-4. Модуль навсегда зависает в «остановка…» при неудачном kill.** lib/daemons.js:202-220 — 5-сек failsafe снимает `stopPromise`, но зомби `st.proc` остаётся; очередь стартов блокируется (`if (st.proc) return`, daemons.js:104). Фикс: после failsafe принудительно чистить `st.proc`/эмитить состояние.
+- [x] **BUG-5. Portable-самообновление заменяет не тот exe.** main.js:942-951 — у portable-таргета `process.execPath` = временный распакованный exe; обновление кладётся в temp, лаунчер остаётся старым. То же в очистке `Invis.exe.old` (main.js:159-161). Использовать `PORTABLE_EXECUTABLE_DIR`/`PORTABLE_EXECUTABLE_FILENAME`.
 
 ### P1 — заметные дефекты
 
-- [ ] **BUG-6. Утечка сокета при успешной DNS-диагностике.** lib/diag.js:36-47 — success-путь не вызывает `sock.destroy()`. Завернуть через `finish()`.
-- [ ] **BUG-7. `getTorIp` может подвесить диагностику.** lib/ipinfo.js:69-87 — не слушается `'close'` (RST не даёт `'end'`), единственный бэкстоп — 20-сек таймер; зависший `diag:run` навсегда блокирует кнопку (js/app.js:829-840). Слушать `'close'` и завершать промис.
-- [ ] **BUG-8. Tor может вечно висеть в `busy`.** lib/daemons.js:158-164 — bootstrap никогда не достигший 100% (мёртвые мосты) не имеет таймаута → вечное «подключается…». Хард-таймаут 3-5 мин → `error`.
-- [ ] **BUG-9. Скачивание обновления без таймаута.** lib/updater.js:61-80 — зависший CDN навсегда оставляет `updateState.downloading=true` и блокирует повторные установки (main.js:909). Таймаут неактивности + сброс флага.
-- [ ] **BUG-10. Двойная проверка обновлений при включении autoUpdate.** js/app.js:156 шлёт `update:check`, main.js:720 делает то же внутри setSetting. Убрать одну.
-- [ ] **BUG-11. Задвоенный rebuild трей-меню.** main.js:119-120 — `tray?.setContextMenu(trayMenu())` дважды подряд (copy-paste).
+- [x] **BUG-6. Утечка сокета при успешной DNS-диагностике.** lib/diag.js:36-47 — success-путь не вызывает `sock.destroy()`. Завернуть через `finish()`.
+- [x] **BUG-7. `getTorIp` может подвесить диагностику.** lib/ipinfo.js:69-87 — не слушается `'close'` (RST не даёт `'end'`), единственный бэкстоп — 20-сек таймер; зависший `diag:run` навсегда блокирует кнопку (js/app.js:829-840). Слушать `'close'` и завершать промис.
+- [x] **BUG-8. Tor может вечно висеть в `busy`.** lib/daemons.js:158-164 — bootstrap никогда не достигший 100% (мёртвые мосты) не имеет таймаута → вечное «подключается…». Хард-таймаут 3-5 мин → `error`.
+- [x] **BUG-9. Скачивание обновления без таймаута.** lib/updater.js:61-80 — зависший CDN навсегда оставляет `updateState.downloading=true` и блокирует повторные установки (main.js:909). Таймаут неактивности + сброс флага.
+- [x] **BUG-10. Двойная проверка обновлений при включении autoUpdate.** js/app.js:156 шлёт `update:check`, main.js:720 делает то же внутри setSetting. Убрать одну.
+- [x] **BUG-11. Задвоенный rebuild трей-меню.** main.js:119-120 — `tray?.setContextMenu(trayMenu())` дважды подряд (copy-paste).
 - [ ] **BUG-12. `npm run make-icons` сломан на чистом клоне.** tools/make-icons.js:15-16 требуют `sharp`/`png-to-ico`, которых нет в package.json. Объявить devDeps или пометить скрипт как опциональный.
 - [ ] **BUG-13. tools/screenshot.js: стабы отстали от схемы.** Нет стаба `tor:countries` (app.js:527 вызовет unhandled rejection, пустая страна на всех скриншотах), в стабе настроек нет `tor`-секции и `dnscrypt.presets`/`blockBrowserDoh`. Переписать на общий тип Settings (см. TS-фазу) — исчезнет как класс.
 
@@ -114,7 +115,7 @@ CSP `default-src 'self'` (index.html:5); Tor CookieAuthentication/ClientOnly/NoE
 - [ ] Двойной вызов `composeBlockedNames` (configs.js:216,218) — читать мегабайтные пресеты один раз за rebuild.
 - [ ] `port53Owner` показывает только первый PID из слушающих :53 (lib/netmode.js:70-75).
 - [ ] Бессмысленный rethrow (main.js:1054-1056) — теряет стек.
-- [ ] Комментарий-сирота на main.js:27 (от `quitting` прилип к `trayInfo`).
+- [x] Комментарий-сирота на main.js:27 (от `quitting` прилип к `trayInfo`).
 - [ ] Вводящий в заблуждение статус «Tor перезапускается с новым torrc…», когда Tor не запущен (js/app.js:519, 667-669; main перезапускает только если isRunning, main.js:732-736).
 - [ ] Стартовая подсказка «Запусти Tor — и здесь появится IP» (index.html:78) мгновенно затирается «проверяю…» (js/app.js:730).
 - [ ] Задвоенный magic number 300 лимита резольверов (js/app.js:266, 291).
