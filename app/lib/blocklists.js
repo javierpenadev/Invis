@@ -17,20 +17,40 @@ const PRESETS = {
     },
 };
 
+const DOWNLOAD_TIMEOUT_MS = 60000;
+
 function download(url, dest, redirects = 0) {
     return new Promise((resolve, reject) => {
         if (redirects > 5) return reject(new Error('слишком много редиректов'));
-        https.get(url, { headers: { 'User-Agent': 'Invis' } }, (res) => {
+        const part = `${dest}.part`;
+        let overall = null;
+        const fail = (err) => {
+            if (overall) clearTimeout(overall);
+            /* Обрыв не должен оставлять «навсегда валидный» обрезанный файл */
+            try { fs.unlinkSync(part); } catch (e) { /* ещё не создан */ }
+            reject(err);
+        };
+        const done = () => {
+            if (overall) clearTimeout(overall);
+            try { fs.renameSync(part, dest); resolve(dest); }
+            catch (e) { reject(e); }
+        };
+        /* Общий таймаут: зависший сервер раньше вешал включение пресета навсегда */
+        const req = https.get(url, { headers: { 'User-Agent': 'Invis' } }, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 res.resume();
+                if (overall) clearTimeout(overall);
                 return resolve(download(new URL(res.headers.location, url).href, dest, redirects + 1));
             }
             if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
-            const out = fs.createWriteStream(dest);
+            const out = fs.createWriteStream(part);
             res.pipe(out);
-            out.on('finish', () => out.close(resolve));
-            out.on('error', reject);
-        }).on('error', reject);
+            res.on('error', fail);
+            out.on('error', fail);
+            out.on('finish', done);
+        });
+        req.on('error', fail);
+        overall = setTimeout(() => req.destroy(new Error('таймаут загрузки блок-листа')), DOWNLOAD_TIMEOUT_MS);
     });
 }
 
@@ -40,6 +60,7 @@ async function ensure(configDir, name) {
     if (!preset) throw new Error(`неизвестный пресет: ${name}`);
     const dest = path.join(configDir, `preset-${name}.txt`);
     if (fs.existsSync(dest)) return dest;
+    try { fs.unlinkSync(`${dest}.part`); } catch (e) { /* не было */ }
     await download(preset.url, dest);
     return dest;
 }

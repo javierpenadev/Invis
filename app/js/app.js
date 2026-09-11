@@ -144,7 +144,13 @@
                 if (ovText) InvisUI.showOverlay(ovText, { hideOnState: true });
                 pendingKeys.add(key);
                 UIBridge.invoke('settings:set', patch)
-                    .then((s) => { if (s) applySettingsToForm(s); })
+                    .then((s) => {
+                        /* Ключ снимаем ДО применения ответа: main при неудаче
+                         * (например, перехват DNS не применён) возвращает
+                         * исправленное значение — галка обязана перерисоваться */
+                        pendingKeys.delete(key);
+                        if (s) applySettingsToForm(s);
+                    })
                     .catch((err) => {
                         InvisUI.hideOverlay();
                         InvisUI.setStatus(`Ошибка сохранения настройки: ${err.message || err}`, { error: true });
@@ -153,7 +159,6 @@
                         pendingKeys.delete(key);
                         hideOverlayIfPending();
                     });
-                if (key === 'autoUpdate' && e.target.checked) UIBridge.send('update:check');
             });
         }
 
