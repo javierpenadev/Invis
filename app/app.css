@@ -273,7 +273,7 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
     .update-badge { margin-left: 8px; }
 }
 @media (max-width: 400px) {
-    .titlebar-speed { display: none; }  /* скорость остаётся в трее */
+    .titlebar { padding: 0 10px; }  /* без кнопки DevTools скорость видна даже на 320px */
     .action-btn { padding: 7px 10px; font-size: 12px; }
     .mini-btn { padding: 6px 12px; font-size: 12px; }
 }

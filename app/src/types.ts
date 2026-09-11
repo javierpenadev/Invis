@@ -50,6 +50,7 @@ export interface Settings {
     autostart: AutostartSettings;
     dnscrypt: DnscryptSettings;
     tor: TorSettings;
+    windowBounds: WindowBounds;
 }
 
 /* Частичный патч произвольной глубины (как его шлёт рендерер в settings:set).
@@ -64,3 +65,12 @@ export type SettingsPatch = DeepPartial<Settings>;
 
 /* Имена модулей-демонов (ключи супервизора) */
 export type DaemonName = 'tor' | 'dnscrypt' | 'i2p';
+
+/* Последняя геометрия окна (width/height 0 = ещё не сохранялось — первый запуск) */
+export interface WindowBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    maximized: boolean;
+}

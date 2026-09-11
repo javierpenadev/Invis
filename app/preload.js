@@ -10,7 +10,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 /* one-way сообщения рендерер → main (ipcMain.on) */
 const SEND = new Set([
     // тайтлбар
-    'window-minimize', 'window-maximize', 'window-devtools', 'window-close',
+    'window-minimize', 'window-maximize', 'window-close',
     // модули
     'modules:start-all', 'modules:stop-all', 'modules:toggle',
     // лог запросов, Tor, ярлыки

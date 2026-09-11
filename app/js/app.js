@@ -3,8 +3,6 @@
  * Логика демонов подключается позже (ТЗ фаза 1) — пока IPC-заглушки в main.js.
  */
 (function () {
-    let isMax = false;
-
     const $ = (sel) => document.querySelector(sel);
 
     /* ---------- Lucide-иконки (inline SVG, stroke=currentColor) ---------- */
@@ -66,17 +64,9 @@
     };
 
     /* ---------- тайтлбар ---------- */
-    const updateMaxIcon = () => {
-        const m = document.querySelector('.maximize svg');
-        if (m) m.innerHTML = isMax
-            ? '<rect x="2" y="2" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.5"/>'
-            : '<rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5"/>';
-    };
-
     const initTitlebar = () => {
         $('.minimize')?.addEventListener('click', () => UIBridge.send('window-minimize'));
-        $('.maximize')?.addEventListener('click', () => { UIBridge.send('window-maximize'); isMax = !isMax; updateMaxIcon(); });
-        $('.devtools')?.addEventListener('click', () => UIBridge.send('window-devtools'));
+        $('.devtools')?.remove(); // кнопка DevTools убрана — на узком окне нужна скорость
         $('.close')?.addEventListener('click', () => UIBridge.send('window-close'));
     };
 

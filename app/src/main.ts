@@ -3,7 +3,7 @@
  * Окно маленькое, закрывается в трей; настройки — JSON (store).
  * Точки расширения помечены «Точка расширения:» (демоны, IPC-каналы и т.п.).
  */
-import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard, shell, screen } from 'electron';
 import { spawn, execFileSync, execFile } from 'child_process';
 import { pathToFileURL } from 'url';
 import * as fs from 'fs';
@@ -27,6 +27,13 @@ import * as netspeed from './lib/netspeed';
 import { Settings, SettingsPatch, DaemonName } from './types';
 import type { DnsBackupEntry } from './lib/netmode';
 import type { ExitInfoResult } from './lib/torspeed';
+
+/* Тестовый изолированный профиль: INVIS_USERDATA=<каталог> — настройки и
+ * данные живут там, реальные настройки пользователя не затрагиваются.
+ * До загрузки store (settings грузятся на инициализации модуля). */
+if (process.env.INVIS_USERDATA) {
+    app.setPath('userData', process.env.INVIS_USERDATA);
+}
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -201,22 +208,13 @@ function onReady(): void {
         setTimeout(() => sendToRenderer('modules:event', { text: w }), 1500 + i * 1200);
     });
 
-    /* Автозапуск модулей согласно настройкам */
+    /* Автозапуск модулей согласно настройкам — ТОЛЬКО по галкам автозапуска.
+     * Прокси-намерение (systemProxy) принудительно Tor НЕ запускает: при чистом
+     * выходе прокси в реестре снят, а когда пользователь сам запустит Tor —
+     * эффект прокси вернётся автоматически (onState tor 'on'). */
     const sup = supervisor;
     if (!process.env.INVIS_NO_AUTOSTART && sup) {
         const started = sup.startEnabled(settings.autostart);
-        /* Системный прокси живёт вместе с Tor: если галка включена, Tor нужен
-         * всегда — иначе прокси смотрит в мёртвый порт. Если автозапуск Tor
-         * выключен, запуск выглядит неожиданно — объясняем прямо. */
-        if (settings.systemProxy && !sup.isRunning('tor')) {
-            sup.start('tor');
-            if (!settings.autostart.tor) {
-                netmodeLog('Tor запущен автоматически: активен системный прокси (автозапуск Tor выключен)');
-                sendToRenderer('modules:event', {
-                    text: 'Tor запущен автоматически: включён «Системный прокси», без него прокси не работает (автозапуск Tor выключен в настройках)',
-                });
-            }
-        }
         if (started.length) console.log(`[Invis] Автозапуск модулей: ${started.join(', ')}`);
     }
 
@@ -607,10 +605,44 @@ function stopAllModules(): Promise<void> {
 }
 
 /* ---------- окно ---------- */
+/* ---------- окно ---------- */
+/* Геометрия: первый запуск — минимальный размер (320×568, iPhone SE);
+ * дальше положение/размер/развёрнутость запоминаются в настройках. */
+let boundsSaveTimer: NodeJS.Timeout | null = null;
+
+function saveWindowBounds(): void {
+    if (!win || win.isDestroyed()) return;
+    const b = win.getNormalBounds();
+    settings.windowBounds = {
+        x: b.x, y: b.y, width: b.width, height: b.height,
+        maximized: win.isMaximized(),
+    };
+    try { store.save(settings); } catch (e) { /* геометрия не критична */ }
+}
+
+function scheduleSaveBounds(): void {
+    if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+    boundsSaveTimer = setTimeout(saveWindowBounds, 500);
+}
+
+function restoreBounds(): { x?: number; y?: number; width: number; height: number } {
+    const saved = settings.windowBounds;
+    if (!saved || !saved.width || !saved.height) {
+        return { width: 320, height: 568 }; // первый запуск — минимальный размер
+    }
+    const b = { x: saved.x, y: saved.y, width: saved.width, height: saved.height };
+    /* Сменился монитор/разрешение — не теряем окно за экраном */
+    const wa = screen.getDisplayMatching(b).workArea;
+    const intersects = b.x < wa.x + wa.width && b.x + b.width > wa.x
+        && b.y < wa.y + wa.height && b.y + b.height > wa.y;
+    if (!intersects) return { width: Math.min(saved.width, wa.width), height: Math.min(saved.height, wa.height) };
+    return b;
+}
+
 function createWindow(): void {
+    const bounds = restoreBounds();
     win = new BrowserWindow({
-        width: 760,
-        height: 600,
+        ...bounds,
         minWidth: 320,      // экран iPhone SE (320×568) — нижняя граница адаптива
         minHeight: 568,
         frame: false,
@@ -639,12 +671,17 @@ function createWindow(): void {
     });
 
     win.on('close', (e) => {
+        saveWindowBounds();
         if (!quitting && settings.closeToTray) {
             e.preventDefault();
             hideToTray();
         }
     });
     win.on('closed', () => { win = null; });
+    /* Память геометрии: положение/размер/развёрнутость — в настройки (с дебаунсом) */
+    win.on('resize', scheduleSaveBounds);
+    win.on('move', scheduleSaveBounds);
+    if (settings.windowBounds.maximized) win.maximize();
 
     /* Смоук-тест: APP_SMOKE=<мс> — вывести консоль рендерера и закрыться */
     if (process.env.APP_SMOKE) {
@@ -960,7 +997,6 @@ ipcMain.on('window-maximize', () => {
     if (!win) return;
     if (win.isMaximized()) win.unmaximize(); else win.maximize();
 });
-ipcMain.on('window-devtools', () => win?.webContents.toggleDevTools());
 ipcMain.on('window-close', () => win?.close());
 
 /* ---------- IPC: настройки ---------- */
@@ -1298,6 +1334,7 @@ ipcMain.on('open:github', () => shell.openExternal('https://github.com/javierpen
 
 app.on('before-quit', (e) => {
     quitting = true;
+    saveWindowBounds(); // app.exit(0) минует 'close' — геометрию сохраняем здесь
     if (cleanupDone) return;
     /* Блокирующая очистка: гасим демоны и возвращаем системный DNS,
      * и только затем выходим (иначе процессы-«зомби» и сломанный DNS) */

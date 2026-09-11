@@ -15,6 +15,7 @@ export const DEFAULTS: Settings = {
     systemProxy: false,                // системный прокси -> Tor SOCKS5
     autoUpdate: true,                  // автоматически проверять обновления
     systemDnsAdapters: [],             // имена адаптеров; пусто = все физические
+    windowBounds: { x: 0, y: 0, width: 0, height: 0, maximized: false }, // 0 = первый запуск
     autostart: {                       // автозапуск модулей при старте Invis
         dnscrypt: true,
         tor: true,
