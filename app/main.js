@@ -39,6 +39,24 @@ const TITLE = 'Invis';
 const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
 const dnsBackupFile = () => path.join(store.baseDir(), 'dns-backup.json');
 
+/* dns-backup.json попадает в PowerShell-команды (в т.ч. запускаемые под UAC) —
+ * принимаем только строгую схему [{alias, addresses[]}], адреса — только
+ * символы IP. Всё остальное отбрасываем: файл в userData может быть подменён
+ * малварью того же пользователя (см. таск-лист аудита SEC-2). */
+const IPV_RE = /^[0-9a-fA-F.:]{2,45}$/;
+function sanitizeDnsBackup(raw) {
+    if (!Array.isArray(raw)) return null;
+    const out = [];
+    for (const item of raw) {
+        if (!item || typeof item !== 'object'
+                || typeof item.alias !== 'string' || !item.alias.trim()
+                || !Array.isArray(item.addresses)) continue;
+        const addresses = item.addresses.filter((a) => typeof a === 'string' && IPV_RE.test(a));
+        out.push({ alias: item.alias.trim(), addresses });
+    }
+    return out.length ? out : null;
+}
+
 /* ---------- единственный экземпляр ---------- */
 /* relaunchElevated стартует новый процесс, пока старый ещё завершается
  * (блокирующая очистка демонов занимает секунды) — lock бывает занят.
@@ -201,7 +219,10 @@ function applySystemDns() {
     /* Выбранные пользователем адаптеры (пустой выбор = все физические) */
     const selected = (settings.systemDnsAdapters || []).filter((a) => up.includes(a));
     const adapters = selected.length ? selected : up;
-    const backup = adapters.map((a) => ({ alias: a, addresses: netmode.getDnsServers(a) }));
+    const backup = adapters.map((a) => ({
+        alias: a,
+        addresses: netmode.getDnsServers(a).filter(netmode.isValidIp),
+    }));
     netmode.writeBackup(dnsBackupFile(), backup);
     netmodeLog(`Перехват DNS включён. Адаптеры: [${adapters.join(', ')}]. Сохранено: `
         + JSON.stringify(backup));
@@ -211,8 +232,17 @@ function applySystemDns() {
 }
 
 function restoreSystemDns() {
-    const backup = netmode.readBackup(dnsBackupFile());
-    if (!backup) { dnsApplied = false; return; }
+    const backup = sanitizeDnsBackup(netmode.readBackup(dnsBackupFile()));
+    if (!backup) {
+        /* Файла нет или он не прошёл валидацию: бэкап битого вида нельзя
+         * «восстанавливать» — удаляем, чтобы не зациклить crash-recovery */
+        if (fs.existsSync(dnsBackupFile())) {
+            netmode.removeBackup(dnsBackupFile());
+            netmodeLog('dns-backup.json не прошёл валидацию — удалён без восстановления');
+        }
+        dnsApplied = false;
+        return;
+    }
     for (const { alias, addresses } of backup) {
         try {
             /* Если в бэкапе только loopback — прежний локальный резольвер уже не
@@ -252,12 +282,20 @@ function recoverSystemDnsIfNeeded() {
 
 /* Разовое восстановление DNS через отдельный elevated-процесс */
 function restoreElevatedOneShot() {
-    const backup = netmode.readBackup(dnsBackupFile());
-    if (!backup) return;
-    const lines = backup.map(({ alias, addresses }) => addresses && addresses.length
-        ? `Set-DnsClientServerAddress -InterfaceAlias '${alias.replace(/'/g, "''")}' -ServerAddresses ${addresses.map((a) => `'${a}'`).join(',')}`
-        : `Set-DnsClientServerAddress -InterfaceAlias '${alias.replace(/'/g, "''")}' -ResetServerAddresses`);
-    const ps1 = path.join(app.getPath('temp'), 'invis-dns-restore.ps1');
+    const backup = sanitizeDnsBackup(netmode.readBackup(dnsBackupFile()));
+    if (!backup) {
+        netmode.removeBackup(dnsBackupFile());
+        return;
+    }
+    const lines = backup.map(({ alias, addresses }) => {
+        const qAlias = alias.replace(/'/g, "''");
+        return addresses.length
+            ? `Set-DnsClientServerAddress -InterfaceAlias '${qAlias}' -ServerAddresses ${addresses.map((a) => `'${a}'`).join(',')}`
+            : `Set-DnsClientServerAddress -InterfaceAlias '${qAlias}' -ResetServerAddresses`;
+    });
+    /* Случайный каталог вместо предсказуемого имени в %TEMP% (TOCTOU-подмена) */
+    const tmpDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'invis-dns-'));
+    const ps1 = path.join(tmpDir, 'restore.ps1');
     fs.writeFileSync(ps1, lines.join('\r\n'), 'utf8');
     try {
         execFileSync('powershell',
@@ -268,6 +306,8 @@ function restoreElevatedOneShot() {
         netmodeLog('DNS восстановлен разовым elevated-скриптом');
     } catch (e) {
         netmodeLog('Разовое восстановление отменено (UAC/таймаут)');
+    } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) { /* не критично */ }
     }
 }
 

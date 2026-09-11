@@ -26,6 +26,12 @@ function isElevated() {
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
+/* Строгая проверка DNS-адреса: значения попадают в PowerShell-команды
+ * (в т.ч. читаемые из dns-backup.json) — пропускаем только символы,
+ * из которых состоит IP: цифры, hex, точки и двоеточия. */
+const IPV_RE = /^[0-9a-fA-F.:]{2,45}$/;
+const isValidIp = (a) => typeof a === 'string' && IPV_RE.test(a);
+
 /* Активные физические адаптеры (виртуальные Hyper-V/WSL исключаются) */
 function getUpPhysicalAdapters() {
     const out = ps("Get-NetAdapter -Physical | Where-Object Status -eq 'Up' | ForEach-Object { $_.Name }");
@@ -44,7 +50,9 @@ function setDnsLoopback(alias) {
 }
 
 function setDnsList(alias, addresses) {
-    const list = addresses.map((a) => `'${a}'`).join(',');
+    const valid = addresses.filter(isValidIp);
+    if (!valid.length) throw new Error('нет валидных DNS-адресов для восстановления');
+    const list = valid.map((a) => `'${a}'`).join(',');
     ps(`Set-DnsClientServerAddress -InterfaceAlias ${q(alias)} -ServerAddresses ${list}`);
 }
 
@@ -87,6 +95,7 @@ function removeBackup(file) { try { fs.unlinkSync(file); } catch (e) { /* нет
 
 module.exports = {
     isElevated,
+    isValidIp,
     getUpPhysicalAdapters,
     getDnsServers,
     setDnsLoopback,
