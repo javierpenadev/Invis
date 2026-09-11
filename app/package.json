@@ -2,17 +2,18 @@
   "name": "invis",
   "version": "1.9.5",
   "description": "Invis — Tor + DNSCrypt + I2P для Windows (Electron UI, tray-приложение, системный DNS)",
-  "main": "main.js",
+  "main": "dist/main.js",
   "scripts": {
-    "start": "electron .",
+    "build": "tsc -p tsconfig.main.json",
+    "watch": "tsc -p tsconfig.main.json --watch",
+    "start": "npm run build && electron .",
     "fetch-bins": "node tools/fetch-bins.js",
     "make-icons": "node tools/make-icons.js",
-    "check": "node tools/dev-check.js",
-    "dist": "electron-builder --win",
+    "check": "npm run build && node tools/dev-check.js",
+    "dist": "npm run build && electron-builder --win",
     "checksums": "node tools/make-checksums.js",
-    "dist:nsis": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable",
-    "check-settings": "node tools/check-settings.js"
+    "dist:nsis": "npm run build && electron-builder --win nsis",
+    "dist:portable": "npm run build && electron-builder --win portable"
   },
   "license": "GPL-3.0",
   "build": {
@@ -22,13 +23,11 @@
       "output": "release"
     },
     "files": [
-      "main.js",
+      "dist/**",
       "preload.js",
-      "store.js",
       "index.html",
       "style.css",
       "app.css",
-      "lib/**",
       "js/**",
       "assets/**",
       "THIRD-PARTY-LICENSES.md"
@@ -66,7 +65,9 @@
     }
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "electron": "^44.1.1",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.9.3"
   }
 }

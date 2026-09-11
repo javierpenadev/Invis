@@ -1,0 +1,11 @@
+{
+  /* Рендерер (js/*.js) остаётся plain JS: даём редактору типы глобальных
+     мостов и DOM-интеллисенс без изменения рантайма (TS-5). */
+  "compilerOptions": {
+    "target": "ES2022",
+    "checkJs": false,
+    "noEmit": true
+  },
+  "include": ["js/**/*.js"],
+  "exclude": ["node_modules", "dist", "src", "tools"]
+}

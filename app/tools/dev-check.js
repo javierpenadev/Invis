@@ -1,13 +1,13 @@
 /*
  * Headless-проверка демонов без GUI: генерирует конфиги во временный каталог,
  * запускает все три модуля, печатает переходы состояний, гасит процессы.
- * Запуск: node tools/dev-check.js [секунды]
+ * Запуск: npm run check (сначала собирает dist/) — или node tools/dev-check.js [сек]
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildAll } = require('../lib/configs');
-const { DaemonSupervisor } = require('../lib/daemons');
+const { buildAll } = require('../dist/lib/configs');
+const { DaemonSupervisor } = require('../dist/lib/daemons');
 
 const RUN_SECONDS = Number(process.argv[2]) || 45;
 /* База в домашнем каталоге: специально с не-ASCII путём (кириллица в имени

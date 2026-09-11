@@ -37,6 +37,10 @@ const startupWarnings = [];   // предупреждения для UI посл
 let proxyApplied = false;      // системный прокси направлен на Tor
 
 const TITLE = 'Invis';
+/* Корень приложения: исходники живут в src/, компилируются в dist/ —
+ * __dirname указывает на dist, все статические файлы (index.html, assets,
+ * preload, bin в dev) — на уровень выше. В сборке это корень asar. */
+const APP_ROOT = path.join(__dirname, '..');
 const DAEMON_VERSIONS = { tor: '0.4.9.12', dnscrypt: '2.1.18', i2pd: '2.61.0' };
 const dnsBackupFile = () => path.join(store.baseDir(), 'dns-backup.json');
 
@@ -217,7 +221,7 @@ function onReady() {
 
 /* Каталог бинарников: в сборке — resources/bin, в dev — <проект>/bin */
 function binDir() {
-    return app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(__dirname, 'bin');
+    return app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(APP_ROOT, 'bin');
 }
 
 /* ---------- системный DNS (перехват на 127.0.0.1, порт 53 у dnscrypt) ---------- */
@@ -339,7 +343,7 @@ function restoreElevatedOneShot() {
 /* Перезапуск приложения с правами администратора (UAC) */
 function relaunchElevated() {
     const exe = process.execPath.replace(/'/g, "''");
-    const args = app.isPackaged ? [] : [__dirname.replace(/'/g, "''")];
+    const args = app.isPackaged ? [] : [APP_ROOT.replace(/'/g, "''")];
     const ps = `Start-Process -FilePath '${exe}' ${args.length ? `-ArgumentList ${args.map((a) => `'${a}'`).join(',')}` : ''} -Verb RunAs`;
     spawn('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
     quitting = true;
@@ -554,23 +558,23 @@ function createWindow() {
         frame: false,
         backgroundColor: '#1e1e2f',
         title: TITLE,
-        icon: path.join(__dirname, 'assets', 'img', 'icon.ico'),
+        icon: path.join(APP_ROOT, 'assets', 'img', 'icon.ico'),
         webPreferences: {
             /* SEC-1: у рендерера нет Node; весь IPC — через preload-мост
              * с allowlist каналов (preload.js). Любая HTML-инъекция в UI
              * больше не даёт доступ к файловой системе и процессам. */
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(APP_ROOT, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
         },
     });
     win.setMenuBarVisibility(false);
-    win.loadFile(path.join(__dirname, 'index.html'));
+    win.loadFile(path.join(APP_ROOT, 'index.html'));
 
     /* SEC-1: никаких открытий окон и навигаций из рендерера — только своя страница */
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    const ownUrl = pathToFileURL(path.join(__dirname, 'index.html')).href;
+    const ownUrl = pathToFileURL(path.join(APP_ROOT, 'index.html')).href;
     win.webContents.on('will-navigate', (e, url) => {
         if (url === ownUrl || url.startsWith(ownUrl + '#')) return;
         e.preventDefault();
@@ -613,7 +617,7 @@ function hideToTray() {
             tray?.displayBalloon({
                 title: TITLE,
                 content: 'Приложение продолжает работать в трее.',
-                icon: nativeImage.createFromPath(path.join(__dirname, 'assets', 'img', 'icon.ico')),
+                icon: nativeImage.createFromPath(path.join(APP_ROOT, 'assets', 'img', 'icon.ico')),
             });
         } catch (e) { /* balloon не критичен */ }
     }
@@ -624,7 +628,7 @@ const TRAY_LABELS = { on: 'работает', off: 'выключен', busy: 'п
 
 function initTrayIcons() {
     for (const s of ['on', 'off', 'busy']) {
-        trayIcons[s] = nativeImage.createFromPath(path.join(__dirname, 'assets', 'img', `tray-${s}.png`));
+        trayIcons[s] = nativeImage.createFromPath(path.join(APP_ROOT, 'assets', 'img', `tray-${s}.png`));
     }
 }
 
