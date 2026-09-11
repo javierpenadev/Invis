@@ -70,6 +70,18 @@
         <section class="fields-section">
             <h3>Модули</h3>
 
+            <div class="mode-switch" id="modeSwitch" role="tablist">
+                <button class="mode-pill active" data-mode="tor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5-1-1-1.5-1.5-1.5C9 3.9 7 8 7 12a7 7 0 0 0 5 10z"/></svg>
+                    <span>Tor</span>
+                </button>
+                <button class="mode-pill" data-mode="openvpn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
+                    <span>OpenVPN</span>
+                </button>
+                <span class="mode-hint" id="modeHint">Прокси SOCKS5 для браузера и приложений</span>
+            </div>
+
             <div class="btn-row" style="margin:0 0 10px">
                 <button class="mini-btn" id="diagBtn" data-cursor-text="go"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Проверить</button>
                 <button class="mini-btn ghost" id="i2pConsoleBtn" data-cursor-text="^">Консоль I2P</button>
@@ -107,6 +119,15 @@
                     <span class="module-status hint" id="statusI2p">остановлен</span>
                 </div>
                 <button class="mini-btn module-toggle" data-module="i2p" data-cursor-text="p">Пуск</button>
+            </div>
+
+            <div class="module-row is-hidden" data-module="openvpn" id="rowOpenvpn">
+                <span class="module-dot" id="dotOpenvpn"></span>
+                <div class="module-info">
+                    <span class="module-name">OpenVPN <span class="hint" id="ovpnServerHint"></span></span>
+                    <span class="module-status hint" id="statusOpenvpn">остановлен</span>
+                </div>
+                <button class="mini-btn ghost" id="ovpnDisconnectBtn" data-cursor-text="x">Отключить</button>
             </div>
         </section>
         </div>
@@ -181,7 +202,16 @@
             <label class="check-row">
                 <input type="checkbox" id="setSystemProxy"> Направлять системный прокси на Tor
                 <span class="hint">(SOCKS5 127.0.0.1:9050; для Chrome/Edge и приложений с системным прокси)</span>
-            </label>
+                <button class="mini-btn ghost" id="copyProxyBtn" data-cursor-text="c" title="Скопировать строку прокси для отдельного приложения">копировать socks5://127.0.0.1:9050</button>
+            </label>            <div class="hint is-hidden" id="systemProxyOvpnHint">В режиме OpenVPN системный прокси не нужен: VPN перехватывает весь трафик.</div>
+
+            <div class="settings-subtitle">OpenVPN <span class="hint" id="ovpnDetect"></span></div>
+            <div class="btn-row">
+                <button class="mini-btn" id="ovpnImportBtn" data-cursor-text="o">Импорт .ovpn</button>
+                <button class="mini-btn ghost" id="vpngateRefreshBtn" data-cursor-text="r">Обновить список VPNGate</button>
+                <span class="hint">Нужен установленный OpenVPN Community; при подключении подтвердите UAC. VPN перехватывает весь трафик через TAP.</span>
+            </div>
+            <div id="vpngateList" class="vpngate-list"><span class="hint">Загрузка списка серверов…</span></div>
 
             <div class="settings-subtitle">Tor</div>
             <label class="check-row">
@@ -240,6 +270,7 @@
                 <span class="module-chip" id="chipDnscrypt">DNS</span>
                 <span class="module-chip" id="chipTor">TOR</span>
                 <span class="module-chip" id="chipI2p">I2P</span>
+                <span class="module-chip is-hidden" id="chipOpenvpn">VPN</span>
             </div>
         </div>
 

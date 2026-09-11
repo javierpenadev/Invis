@@ -42,6 +42,7 @@
         dnscrypt: { chip: 'chipDnscrypt', label: 'DNS', dot: 'dotDnscrypt', status: 'statusDnscrypt' },
         tor: { chip: 'chipTor', label: 'TOR', dot: 'dotTor', status: 'statusTor' },
         i2p: { chip: 'chipI2p', label: 'I2P', dot: 'dotI2p', status: 'statusI2p' },
+        openvpn: { chip: 'chipOpenvpn', label: 'VPN', dot: 'dotOpenvpn', status: 'statusOpenvpn' },
     };
 
     /* state: 'off' | 'busy' | 'on' | 'error' */
@@ -186,7 +187,7 @@
     const hideOverlayIfPending = () => { if (overlayHideOnState) hideOverlay(); };
 
     /* ---------- модули: состояния приходят из main (DaemonSupervisor) ---------- */
-    const moduleStates = { dnscrypt: 'off', tor: 'off', i2p: 'off' };
+    const moduleStates = { dnscrypt: 'off', tor: 'off', i2p: 'off', openvpn: 'off' };
 
     /* Текст статуса модуля: из события или дефолт по состоянию */
     const DEFAULT_STATUS = { off: 'остановлен', busy: 'запуск…', on: 'работает', error: 'ошибка' };
@@ -205,7 +206,7 @@
     };
 
     /* Сводный статус в контрол-баре */
-    const NAMES = { dnscrypt: 'DNSCrypt', tor: 'Tor', i2p: 'I2P' };
+    const NAMES = { dnscrypt: 'DNSCrypt', tor: 'Tor', i2p: 'I2P', openvpn: 'OpenVPN' };
     const updateAggregate = () => {
         const active = Object.entries(moduleStates).filter(([, s]) => s !== 'off');
         if (!active.length) { InvisUI.setStatus('Готов к работе'); return; }
@@ -574,6 +575,111 @@
         });
     };
 
+    /* ---------- режим приватности tor | openvpn ---------- */
+    const modeState = { current: 'tor' };
+    const MODE_HINTS = {
+        tor: 'Прокси SOCKS5 для браузера и приложений',
+        openvpn: 'Весь трафик системы через TAP (требуется админ)',
+    };
+    const applyModeUI = (s) => {
+        modeState.current = s?.privacyMode === 'openvpn' ? 'openvpn' : 'tor';
+        document.querySelectorAll('.mode-pill').forEach((p) =>
+            p.classList.toggle('active', p.dataset.mode === modeState.current));
+        const hint = $('#modeHint');
+        if (hint) hint.textContent = MODE_HINTS[modeState.current];
+        $('#rowOpenvpn')?.classList.toggle('is-hidden', modeState.current !== 'openvpn');
+        $('#chipOpenvpn')?.classList.toggle('is-hidden', modeState.current !== 'openvpn');
+        const sp = $('#setSystemProxy');
+        if (sp) { sp.disabled = modeState.current === 'openvpn'; if (modeState.current === 'openvpn') sp.checked = false; }
+        $('#systemProxyOvpnHint')?.classList.toggle('is-hidden', modeState.current !== 'openvpn');
+    };
+    const initModeSwitch = async () => {
+        applyModeUI(await UIBridge.invoke('settings:get'));
+        document.querySelectorAll('.mode-pill').forEach((p) => p.addEventListener('click', () => {
+            if (p.dataset.mode === modeState.current) return;
+            InvisUI.showOverlay('Переключаю канал приватности…', { hideOnState: true });
+            UIBridge.invoke('mode:set', p.dataset.mode).catch((e) => {
+                InvisUI.hideOverlay();
+                InvisUI.setStatus('Не удалось переключить режим: ' + (e.message || e), { error: true });
+            });
+        }));
+        UIBridge.on('settings:changed', applyModeUI);
+    };
+
+    /* ---------- OpenVPN: детект, импорт, VPNGate ---------- */
+    const fmtSpeed = (bytesPerSec) => {
+        const mbps = bytesPerSec * 8 / 1e6;
+        return mbps >= 100 ? Math.round(mbps) + ' Мбит/с' : mbps.toFixed(1) + ' Мбит/с';
+    };
+    const ovpnState = { servers: [], busy: false };
+
+    const renderVpngate = () => {
+        const box = $('#vpngateList');
+        if (!box) return;
+        if (!ovpnState.servers.length) { box.innerHTML = '<span class="hint">Список пуст — нажмите «Обновить список VPNGate»</span>'; return; }
+        const rows = [...ovpnState.servers].sort((a, b) => (a.pingMs || 9e9) - (b.pingMs || 9e9)).slice(0, 40);
+        box.innerHTML = rows.map((r) => {
+            const idx = ovpnState.servers.indexOf(r);
+            return '<div class="vpngate-row" data-i="' + idx + '">'
+            + '<span class="country-code">' + StringUtils.escape(r.cc || '??') + '</span>'
+            + '<span class="vg-host" title="' + StringUtils.escape(r.host || '') + '">' + StringUtils.escape(r.host || r.ip) + '</span>'
+            + '<span class="vg-ping' + ((r.pingMs || 999) < 150 ? ' good' : '') + '">' + (r.pingMs != null ? r.pingMs + ' мс' : '—') + '</span>'
+            + '<span class="vg-speed">' + fmtSpeed(r.speedBps) + '</span>'
+            + '<button class="mini-btn vg-connect" data-cursor-text="o">Подключить</button>'
+            + '</div>';
+        }).join('');
+        box.querySelectorAll('.vg-connect').forEach((btn) => btn.addEventListener('click', (e) => {
+            const row = e.target.closest('.vpngate-row');
+            const srv = ovpnState.servers[Number(row.dataset.i)];
+            InvisUI.showOverlay('Подключаюсь через ' + (srv.cc || 'VPN') + ' — подтвердите запрос UAC…', { hideOnState: true });
+            InvisUI.setStatus('OpenVPN: подключение к ' + (srv.host || srv.ip) + '…');
+            UIBridge.invoke('vpngate:connect', srv).then((r) => {
+                if (!r || !r.ok) { InvisUI.hideOverlay(); InvisUI.setStatus((r && r.error) || 'Не удалось подключиться', { error: true }); return; }
+                const h = $('#ovpnServerHint'); if (h) h.textContent = '· ' + (srv.cc || '') + ' ' + (srv.host || srv.ip || '');
+            });
+        }));
+    };
+
+    const loadVpngate = async (force) => {
+        if (ovpnState.busy) return;
+        ovpnState.busy = true;
+        const r = await UIBridge.invoke('vpngate:list', { force });
+        ovpnState.busy = false;
+        if (r && r.ok) { ovpnState.servers = r.servers; renderVpngate(); if (force) InvisUI.setStatus('VPNGate: серверов — ' + r.servers.length); }
+        else { const el = $('#vpngateList'); if (el) el.innerHTML = '<span class="hint">VPNGate недоступен: ' + StringUtils.escape((r && r.error) || '') + '. Можно импортировать свой .ovpn.</span>'; }
+    };
+
+    const initOpenvpn = async () => {
+        const det = await UIBridge.invoke('openvpn:detect');
+        const el = $('#ovpnDetect');
+        if (el) el.textContent = det.ok ? 'найден: ' + det.exe : 'не найден — установите OpenVPN Community';
+        $('#vpngateRefreshBtn')?.addEventListener('click', () => loadVpngate(true));
+        $('#ovpnImportBtn')?.addEventListener('click', async () => {
+            const file = await UIBridge.invoke('openvpn:import');
+            if (!file) return;
+            InvisUI.showOverlay('Подключаюсь — подтвердите запрос UAC…', { hideOnState: true });
+            const r = await UIBridge.invoke('openvpn:connect-file', file);
+            if (!r || !r.ok) { InvisUI.hideOverlay(); InvisUI.setStatus((r && r.error) || 'Ошибка подключения', { error: true }); return; }
+            const h = $('#ovpnServerHint'); if (h) h.textContent = '· ' + file.split(/[\/]/).pop();
+        });
+        $('#ovpnDisconnectBtn')?.addEventListener('click', () => {
+            InvisUI.setStatus('OpenVPN: отключение…');
+            UIBridge.send('openvpn:disconnect');
+        });
+        loadVpngate(false);
+    };
+
+    /* ---------- копия строки прокси ---------- */
+    const initCopyProxy = () => {
+        $('#copyProxyBtn')?.addEventListener('click', () => {
+            const line = 'socks5://127.0.0.1:9050';
+            try {
+                require('electron').clipboard.writeText(line);
+                InvisUI.setStatus('Скопировано: ' + line);
+            } catch (e) { InvisUI.setStatus(line); }
+        });
+    };
+
     /* ---------- Tor: мосты, NEWNYM, диагностика ---------- */
     const syncTorBlock = (s) => {
         const on = Boolean(s?.tor?.useBridges);
@@ -729,6 +835,9 @@
         initTor();
         initTorCountries();
         initSpeedTest();
+        initModeSwitch();
+        initOpenvpn();
+        initCopyProxy();
         initDiag();
         setStatus('Готов к работе');
         console.log('Invis UI запущен');
