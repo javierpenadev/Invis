@@ -12,8 +12,16 @@
  */
 const fs = require('fs');
 const path = require('path');
-const sharp = require('sharp');
-const pngToIco = require('png-to-ico').default;
+/* Опциональные dev-зависимости: нужны только для перегенерации иконок.
+ * На чистом клоне даём понятную ошибку вместо стек-трейса (BUG-12). */
+let sharp, pngToIco;
+try {
+    sharp = require('sharp');
+    pngToIco = require('png-to-ico').default;
+} catch (e) {
+    console.error('Для make-icons нужны одноразовые пакеты: npm i -D sharp png-to-ico');
+    process.exit(1);
+}
 
 const ROOT = path.join(__dirname, '..');
 const SRC = fs.existsSync(path.resolve(ROOT, '..', 'logo-omg.svg'))

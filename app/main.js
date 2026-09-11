@@ -884,12 +884,14 @@ ipcMain.on('modules:toggle', (_e, name) => {
     }
 });
 ipcMain.on('modules:start', (_e, name) => {
+    if (!supervisor || !supervisor.specs[name]) return;   // SEC-13: как в toggle
     if (name === 'dnscrypt') prepareDnsInterceptBeforeStart();
-    supervisor?.start(name);
+    supervisor.start(name);
 });
 ipcMain.on('modules:stop', (_e, name) => {
+    if (!supervisor || !supervisor.specs[name]) return;   // SEC-13: крошивший main
     if (name === 'dnscrypt' && dnsApplied) { disableSystemDns(true); return; }
-    supervisor?.stop(name);
+    supervisor.stop(name);
 });
 
 /* ---------- IPC: резольверы, лог запросов, адаптеры ---------- */
@@ -1154,10 +1156,7 @@ ipcMain.on('proxy:copy', () => {
     sendToRenderer('modules:event', { text: 'Скопировано: socks5://127.0.0.1:9050' });
 });
 
-ipcMain.handle('net:speed', async (_e, { viaTor } = {}) => {
-    try { return await netspeed.measure({ viaTor: Boolean(viaTor) }); }
-    catch (e) { throw new Error(e.message); }
-});
+ipcMain.handle('net:speed', (_e, { viaTor } = {}) => netspeed.measure({ viaTor: Boolean(viaTor) }));
 
 ipcMain.handle('tor:exitinfo', async () => {
     if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Tor не запущен' };
