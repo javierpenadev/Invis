@@ -293,7 +293,12 @@
 
     const updateResolverInfo = (shown) => {
         const el = $('#resolverInfo');
-        if (el) el.textContent = `выбрано ${resolverState.selected.size} · показано ${Math.min(shown, 300)} из ${resolverState.list.length}`;
+        if (!el) return;
+        /* ручной режим без единого выбора фактически работает как авто — говорим прямо */
+        const sel = resolverState.selected.size
+            ? `выбрано ${resolverState.selected.size}`
+            : 'выбрано 0 (работает как авто)';
+        el.textContent = `${sel} · показано ${Math.min(shown, 300)} из ${resolverState.list.length}`;
     };
 
     const syncResolverSelection = (s) => {
@@ -429,6 +434,11 @@
             setTimeout(refresh, 200);
         });
         $('#checkUpdatesBtn')?.addEventListener('click', () => {
+            /* дебаунс 3 с: двойной клик = два запроса к GitHub API */
+            const b = $('#checkUpdatesBtn');
+            if (!b || b.disabled) return;
+            b.disabled = true;
+            setTimeout(() => { b.disabled = false; }, 3000);
             InvisUI.setStatus('Проверяем обновления…');
             UIBridge.send('update:check');
         });
@@ -757,11 +767,20 @@
             InvisUI.setStatus(`Получено мостов: ${r.lines.length}`);
         });
         $('#setNewIpMinutes')?.addEventListener('change', (e) => {
-            const n = Math.max(0, Math.round(Number(e.target.value) || 0));
+            const raw = e.target.value;
+            const n = Math.max(0, Math.round(Number(raw) || 0));
             e.target.value = n;
+            if (String(raw).trim() !== String(n)) {
+                InvisUI.setStatus(`Автосмена IP: «${String(raw).trim()}» → ${n} мин (нужно целое число ≥ 0)`);
+            }
             UIBridge.invoke('settings:set', { tor: { newIpMinutes: n } });
         });
-        $('#torNewIpBtn')?.addEventListener('click', () => {
+        const newIpBtn = $('#torNewIpBtn');
+        newIpBtn?.addEventListener('click', () => {
+            /* защита от спама NEWNYM: 5 сек между запросами */
+            if (newIpBtn.disabled) return;
+            newIpBtn.disabled = true;
+            setTimeout(() => { newIpBtn.disabled = false; }, 5000);
             InvisUI.setStatus('Tor: запрашиваем новый IP…');
             UIBridge.send('tor:newip');
         });
