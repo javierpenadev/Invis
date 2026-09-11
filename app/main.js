@@ -192,6 +192,27 @@ function onReady() {
         if (settings.systemProxy && !supervisor.isRunning('tor')) supervisor.start('tor');
         if (started.length) console.log(`[Invis] Автозапуск модулей: ${started.join(', ')}`);
     }
+
+    /* Включённые блок-листы устаревают — раз в сутки перекачать в фоне (SIM-2) */
+    const enabledPresets = Object.entries(settings.dnscrypt?.presets || {})
+        .filter(([, v]) => v).map(([k]) => k);
+    if (enabledPresets.length) {
+        setTimeout(async () => {
+            let refreshedAny = false;
+            for (const name of enabledPresets) {
+                try {
+                    const { refreshed } = await blocklists.ensure(configDirGlobal, name);
+                    if (refreshed) {
+                        refreshedAny = true;
+                        sendToRenderer('modules:event', {
+                            text: `Блок-лист «${blocklists.PRESETS[name].label}» обновлён`,
+                        });
+                    }
+                } catch (e) { /* фон: старый список остался */ }
+            }
+            if (refreshedAny) rebuildConfigsAndRestartDnscrypt();
+        }, 5000);
+    }
 }
 
 /* Каталог бинарников: в сборке — resources/bin, в dev — <проект>/bin */
@@ -815,8 +836,12 @@ if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
         (async () => {
             try {
                 sendToRenderer('modules:event', { text: `Загрузка блок-листа «${blocklists.PRESETS[name].label}»…` });
-                await blocklists.ensure(configDirGlobal, name);
-                sendToRenderer('modules:event', { text: `Блок-лист «${blocklists.PRESETS[name].label}» загружен` });
+                const { refreshed } = await blocklists.ensure(configDirGlobal, name);
+                sendToRenderer('modules:event', {
+                    text: refreshed
+                        ? `Блок-лист «${blocklists.PRESETS[name].label}» загружен`
+                        : `Блок-лист «${blocklists.PRESETS[name].label}» уже актуален (обновляется раз в сутки)`,
+                });
                 rebuildConfigsAndRestartDnscrypt();
             } catch (e) {
                 sendToRenderer('modules:event', { text: `Блок-лист «${name}»: ${e.message}` });

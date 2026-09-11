@@ -18,6 +18,9 @@ const PRESETS = {
 };
 
 const DOWNLOAD_TIMEOUT_MS = 60000;
+/* Списки доменов меняются — раз скачанный «навсегда» устаревал (SIM-2).
+ * Совпадает с TTL кэша Onionoo. */
+const REFRESH_MS = 24 * 60 * 60 * 1000;
 
 function download(url, dest, redirects = 0) {
     return new Promise((resolve, reject) => {
@@ -54,15 +57,27 @@ function download(url, dest, redirects = 0) {
     });
 }
 
-/* Скачивает пресет, если файла ещё нет (кэш в configDir) */
+/* Возвращает пресет, докачивая при отсутствии; если файл старше суток —
+ * перекачивает в фоне того же вызова. При ошибке обновления старый файл
+ * остаётся: устаревший список лучше отсутствующего.
+ * Возвращает { dest, refreshed } (refreshed=true — реально скачан сейчас). */
 async function ensure(configDir, name) {
     const preset = PRESETS[name];
     if (!preset) throw new Error(`неизвестный пресет: ${name}`);
     const dest = path.join(configDir, `preset-${name}.txt`);
-    if (fs.existsSync(dest)) return dest;
+    if (fs.existsSync(dest)) {
+        const fresh = (Date.now() - fs.statSync(dest).mtimeMs) < REFRESH_MS;
+        if (fresh) return { dest, refreshed: false };
+        try {
+            await download(preset.url, dest);
+            return { dest, refreshed: true };
+        } catch (e) {
+            return { dest, refreshed: false };
+        }
+    }
     try { fs.unlinkSync(`${dest}.part`); } catch (e) { /* не было */ }
     await download(preset.url, dest);
-    return dest;
+    return { dest, refreshed: true };
 }
 
 /* Собирает blocked-names.txt: canary браузерного DoH + активные пресеты.
