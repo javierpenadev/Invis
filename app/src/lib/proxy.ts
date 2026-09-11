@@ -3,13 +3,20 @@
  * Бэкап прежних настроек + восстановление. Без прав администратора.
  * Не зависит от Electron (tempPath передаётся параметром).
  */
-const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
+import * as fs from 'fs';
+import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 const KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
 
-function ps(script, timeout = 15000) {
+export interface ProxyBackup {
+    proxyEnable: string | null;
+    proxyServer: string | null;
+    proxyOverride: string | null;
+    autoConfigUrl: string | null;
+}
+
+function ps(script: string, timeout = 15000): string {
     return execFileSync('powershell',
         ['-NoProfile', '-NonInteractive', '-Command',
          `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${script}`],
@@ -19,7 +26,7 @@ function ps(script, timeout = 15000) {
 /* Уведомить систему об изменении настроек прокси (InternetSetOption 39 + 37).
  * Скрипт — в случайном mkdtemp-каталоге (SEC-8): предсказуемое имя в %TEMP%
  * позволяло тому же пользователю подменить файл между записью и запуском. */
-function refreshWininet(tempPath) {
+function refreshWininet(tempPath: string): boolean {
     const dir = fs.mkdtempSync(path.join(tempPath, 'invis-proxy-'));
     const ps1 = path.join(dir, 'refresh.ps1');
     fs.writeFileSync(ps1, [
@@ -37,7 +44,7 @@ function refreshWininet(tempPath) {
     return true;
 }
 
-function regQueryValue(name) {
+function regQueryValue(name: string): string | null {
     try {
         const out = execFileSync('reg', ['query', KEY, '/v', name],
             { encoding: 'utf8', windowsHide: true });
@@ -48,19 +55,19 @@ function regQueryValue(name) {
     }
 }
 
-function regSet(name, type, value) {
+function regSet(name: string, type: string, value: string): void {
     execFileSync('reg', ['add', KEY, '/v', name, '/t', type, '/d', value, '/f'],
         { windowsHide: true, stdio: 'ignore' });
 }
 
-function regDelete(name) {
+function regDelete(name: string): void {
     try {
         execFileSync('reg', ['delete', KEY, '/v', name, '/f'], { windowsHide: true, stdio: 'ignore' });
     } catch (e) { /* значения не было */ }
 }
 
 /* Текущее состояние прокси WinINET */
-function readState() {
+export function readState(): ProxyBackup {
     return {
         proxyEnable: regQueryValue('ProxyEnable'),
         proxyServer: regQueryValue('ProxyServer'),
@@ -74,7 +81,7 @@ function readState() {
 const BYPASS_LIST = 'localhost;127.*;10.*;172.*;192.168.*;<local>';
 
 /* Направить системный прокси на SOCKS Tor */
-function apply(socksAddr, tempPath) {
+export function apply(socksAddr: string, tempPath: string): { backup: ProxyBackup; refreshed: boolean } {
     const backup = readState();
     regSet('ProxyEnable', 'REG_DWORD', '1');
     regSet('ProxyServer', 'REG_SZ', `socks=${socksAddr}`);
@@ -85,7 +92,7 @@ function apply(socksAddr, tempPath) {
 }
 
 /* Вернуть сохранённые значения */
-function restore(backup, tempPath) {
+export function restore(backup: ProxyBackup | null, tempPath: string): void {
     if (backup && backup.proxyServer) {
         regSet('ProxyEnable', 'REG_DWORD', backup.proxyEnable === '0x1' ? '1' : '0');
         regSet('ProxyServer', 'REG_SZ', backup.proxyServer);
@@ -102,9 +109,7 @@ function restore(backup, tempPath) {
 }
 
 /* Включён ли системный прокси, выставленный Invis (наш отпечаток в реестре) */
-function isOursActive() {
+export function isOursActive(): boolean {
     const s = readState();
     return s.proxyEnable === '0x1' && (s.proxyServer || '') === 'socks=127.0.0.1:9050';
 }
-
-module.exports = { readState, isOursActive, apply, restore };
