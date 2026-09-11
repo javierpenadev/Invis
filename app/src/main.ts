@@ -467,7 +467,15 @@ function syncLanFirewall(enabled: boolean): void {
             execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${name}`],
                 { windowsHide: true, stdio: 'ignore' });
         }
-        if (enabled) {
+        if (enabled && !netmode.isElevated()) {
+            /* Дурак включил LAN без админа: без предупреждения он бы не понял,
+             * почему LAN-клиенты не могут использовать DNS */
+            netmodeLog('Firewall LAN DNS: нет прав администратора — правила не добавлены');
+            sendToRenderer('modules:event', {
+                text: 'Доступ из LAN: нет прав администратора — правила брандмауэра не добавлены, LAN-клиенты не смогут использовать DNS',
+            });
+        }
+        if (enabled && netmode.isElevated()) {
             for (const proto of ['UDP', 'TCP']) {
                 execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
                     `name=Invis DNS (${proto} ${port})`, 'dir=in', 'action=allow',
@@ -863,6 +871,18 @@ function setSetting(patch: SettingsPatch): Settings {
         if (lanChanged) syncLanFirewall(Boolean(settings.dnscrypt?.lanAccess));
     }
 
+    /* Галку «Лог DNS» сняли — файл с историей запросов не должен переживать
+     * выключение (dnscrypt отпускает файл после рестарта — даём 5 с) */
+    if (patch.dnscrypt?.queryLog === false) {
+        setTimeout(() => {
+            try {
+                fs.unlinkSync(path.join(configDirGlobal || '', 'query.log'));
+                queryLogOffset = 0;
+                netmodeLog('query.log удалён (логирование выключено)');
+            } catch (e) { /* занят или не было */ }
+        }, 5000);
+    }
+
     /* Изменились параметры Tor — bridges требуют пересборки torrc и рестарта */
     if (patch.tor !== undefined) {
         scheduleNewIp();
@@ -1029,11 +1049,12 @@ interface UpdateState {
     setupUrl: string | null;
     portableUrl: string | null;
     sumsUrl: string | null;
+    sizeMb: number | null;   // размер подходящего артефакта — для подтверждения в UI
 }
 const updateState: UpdateState = {
     available: false, version: null,
     downloading: false, percent: 0,
-    setupUrl: null, portableUrl: null, sumsUrl: null,
+    setupUrl: null, portableUrl: null, sumsUrl: null, sizeMb: null,
 };
 
 async function checkForUpdates(manual = false): Promise<void> {
@@ -1046,7 +1067,9 @@ async function checkForUpdates(manual = false): Promise<void> {
             updateState.setupUrl = rel.setupUrl;
             updateState.portableUrl = rel.portableUrl;
             updateState.sumsUrl = rel.sumsUrl;
-            sendToRenderer('update:available', { version: rel.version });
+            const sizeMb = (process.env.PORTABLE_EXECUTABLE_DIR ? rel.portableSizeMb : rel.setupSizeMb) ?? null;
+            updateState.sizeMb = sizeMb;
+            sendToRenderer('update:available', { version: rel.version, sizeMb });
         } else if (manual) {
             sendToRenderer('modules:event', { text: `У вас последняя версия (v${app.getVersion()})` });
         }

@@ -248,7 +248,15 @@ export class DaemonSupervisor {
                 if (pct >= 100 && st.state === 'busy') this._set(name, 'on', 'работает');
                 else if (st.state === 'busy') this._set(name, 'busy', `${pct}%`);
             }
-            if (/^\[err\]/i.test(line) && st.state === 'busy') this._set(name, 'error', line.slice(0, 120));
+            if (/^\[err\]/i.test(line) && st.state === 'busy') {
+                /* частый случай «дурака»: порт занят другим Tor/SOCKS-сервисом —
+                 * «код 1» ничего не объясняет, объясняем прямо */
+                if (/bind|address already in use/i.test(line)) {
+                    this._set(name, 'error', 'Порт занят другим процессом (другой Tor/SOCKS-сервис?) — ' + line.slice(0, 100));
+                } else {
+                    this._set(name, 'error', line.slice(0, 120));
+                }
+            }
         } else if (name === 'dnscrypt' && 'probePort' in spec) {
             if (/Now listening to/i.test(line) && st.state === 'busy') {
                 void probePort(spec.probePort, 1500).then((ok) => {

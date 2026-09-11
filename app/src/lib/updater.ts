@@ -17,7 +17,9 @@ export interface ReleaseInfo {
     version: string;
     tag: string;
     setupUrl: string | null;
+    setupSizeMb: number | null;
     portableUrl: string | null;
+    portableSizeMb: number | null;
     sumsUrl: string | null;
     htmlUrl: string;
 }
@@ -60,21 +62,25 @@ export async function latestRelease(): Promise<ReleaseInfo> {
     const res = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
     let data = '';
     for await (const c of res) data += c;
-    const rel = JSON.parse(data) as { tag_name?: string; assets?: Array<{ name: string; browser_download_url: string }>; html_url?: string };
+    const rel = JSON.parse(data) as { tag_name?: string; assets?: Array<{ name: string; browser_download_url: string; size?: number }>; html_url?: string };
     if (!rel.tag_name) throw new Error('нет данных о релизе');
     let setupUrl: string | null = null;
+    let setupSizeMb: number | null = null;
     let portableUrl: string | null = null;
+    let portableSizeMb: number | null = null;
     let sumsUrl: string | null = null;
     for (const a of rel.assets || []) {
-        if (/^Invis-Setup-.*\.exe$/.test(a.name)) setupUrl = a.browser_download_url;
-        if (/^Invis-Portable-.*\.exe$/.test(a.name)) portableUrl = a.browser_download_url;
+        if (/^Invis-Setup-.*\.exe$/.test(a.name)) { setupUrl = a.browser_download_url; setupSizeMb = a.size ? Math.round(a.size / 1048576) : null; }
+        if (/^Invis-Portable-.*\.exe$/.test(a.name)) { portableUrl = a.browser_download_url; portableSizeMb = a.size ? Math.round(a.size / 1048576) : null; }
         if (a.name === 'SHA256SUMS.txt') sumsUrl = a.browser_download_url;
     }
     return {
         version: rel.tag_name.replace(/^v/, ''),
         tag: rel.tag_name,
         setupUrl,
+        setupSizeMb,
         portableUrl,
+        portableSizeMb,
         sumsUrl,
         htmlUrl: rel.html_url || `https://github.com/${REPO}/releases`,
     };

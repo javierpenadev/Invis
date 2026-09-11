@@ -574,6 +574,7 @@
         countryState.selected = new Set(s?.tor?.exitCountries || []);
         loadCountries(false);
         $('#countriesRefreshBtn')?.addEventListener('click', () => {
+            if (countryState.busy) return; // защита от спама: параллельные Onionoo-запросы
             InvisUI.setStatus('Обновляю данные о выходных узлах (Onionoo)…');
             loadCountries(true).then(() => {
                 if (countryState.data && countryState.data.ok) {
@@ -674,9 +675,11 @@
 
     /* ---------- IP выхода Tor: страна, город, пинг ---------- */
     const initExitInfo = () => {
+        let busy = false; // защита от двойного клика: гонка ответов показала бы устаревший IP
         const run = async () => {
             const el = $('#exitInfoText');
-            if (!el) return;
+            if (!el || busy) return;
+            busy = true;
             el.textContent = 'проверяю…';
             try {
                 const r = await UIBridge.invoke('tor:exitinfo');
@@ -687,6 +690,8 @@
                     + ' · <b>' + (r.pingMs == null ? '—' : (r.pingMs >= 1000 ? (r.pingMs/1000).toFixed(1) + ' с' : r.pingMs + ' мс')) + '</b>';
             } catch (e) {
                 el.textContent = 'Недоступно: ' + (e.message || e);
+            } finally {
+                busy = false;
             }
         };
         $('#exitInfoBtn')?.addEventListener('click', run);
@@ -797,6 +802,11 @@
         });
         /* промежуточные кадры от main — строки появляются по мере готовности */
         UIBridge.on('diag:result', render);
+        /* «Консоль I2P» активна только при живом I2P — иначе мёртвая вкладка браузера */
+        const i2pBtn = $('#i2pConsoleBtn');
+        const syncI2pBtn = () => { if (i2pBtn) i2pBtn.disabled = moduleStates.i2p !== 'on'; };
+        syncI2pBtn();
+        UIBridge.on('modules:state', (p) => { if (p.name === 'i2p') syncI2pBtn(); });
         $('#i2pConsoleBtn')?.addEventListener('click', () => UIBridge.send('open:console-i2p'));
         $('#logsFolderBtn')?.addEventListener('click', () => UIBridge.send('open:logs'));
         $('#ghBtn')?.addEventListener('click', () => UIBridge.send('open:github'));
@@ -806,7 +816,7 @@
     const initUpdate = async () => {
         const badge = $('#updateBadge'), text = $('#updateText'), btn = $('#updateBtn');
         const verEl = $('#brandVersion');
-        const cur = { available: false, version: null, downloading: false, percent: 0, readyToInstall: false };
+        const cur = { available: false, version: null, downloading: false, percent: 0, readyToInstall: false, sizeMb: null };
 
         const render = () => {
             if (cur.downloading) {
@@ -833,11 +843,13 @@
         const st0 = await UIBridge.invoke('update:state');
         if (st0) {
             cur.available = st0.available; cur.version = st0.version;
+            cur.sizeMb = st0.sizeMb ?? null;
             render();
         }
 
         UIBridge.on('update:available', (d) => {
             cur.available = true; cur.version = d.version;
+            if (d.sizeMb != null) cur.sizeMb = d.sizeMb;
             render();
             InvisUI.setStatus('Доступна новая версия Invis — можно обновить');
         });
@@ -853,7 +865,12 @@
             cur.downloading = false; cur.readyToInstall = true; render();
             InvisUI.showOverlay('Устанавливаю обновление — приложение перезапустится…');
         });
-        btn?.addEventListener('click', () => UIBridge.send('update:install'));
+        btn?.addEventListener('click', () => {
+            /* 130+ МБ без спроса — жестоко для лимитного соединения: спрашиваем */
+            if (cur.available && cur.sizeMb != null
+                    && !confirm(`Скачать обновление v${cur.version} (~${cur.sizeMb} МБ) и установить сейчас?`)) return;
+            UIBridge.send('update:install');
+        });
     };
 
     const init = () => {
