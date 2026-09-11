@@ -20,7 +20,9 @@ ipcMain.handle('settings:get', () => ({
         requireNofilter: true, dnscryptProto: true, dohProto: true, cache: true,
         blockIpv6: false, forceTcp: false, lanAccess: false,
         bootstrap: ['9.9.9.9:53', '8.8.8.8:53'], queryLog: false,
+        blockBrowserDoh: true, presets: { ads: false, malware: false },
     },
+    tor: { newIpMinutes: 0, useBridges: false, bridgesText: '', exitCountries: [] },
 }));
 ipcMain.handle('modules:status', () => ({
     dnscrypt: { state: 'on', status: 'работает (:53)' },
@@ -59,12 +61,33 @@ ipcMain.handle('update:state', () => ({
     available: true, version: '1.3.1', downloading: false, percent: 0,
     readyToInstall: false, currentVersion: '1.3.0', autoUpdate: true, installSupported: true,
 }));
+/* Каналы, которые рендерер дёргает сразу при загрузке окна */
+ipcMain.handle('net:speed', () => 42.5);
+ipcMain.handle('tor:exitinfo', () => ({
+    ok: true, cc: 'DE', city: 'Frankfurt am Main', country: 'Германия',
+    ip: '185.220.101.57', pingMs: 3300,
+}));
+ipcMain.handle('tor:countries', () => ({
+    ok: true, fresh: true, ts: Date.now(),
+    countries: {
+        US: { count: 210, mbps: 1500 }, DE: { count: 120, mbps: 950 },
+        NL: { count: 85, mbps: 720 }, SE: { count: 60, mbps: 500 },
+        CH: { count: 48, mbps: 430 }, FI: { count: 35, mbps: 380 },
+        FR: { count: 40, mbps: 350 }, GB: { count: 30, mbps: 300 },
+    },
+}));
 
 app.whenReady().then(async () => {
     const win = new BrowserWindow({
         width: 820, height: 560, frame: false, show: true,
         backgroundColor: '#1e1e2f',
-        webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
+        /* та же модель изоляции, что и в приложении (SEC-1): UI через preload-мост */
+        webPreferences: {
+            preload: path.join(__dirname, '..', 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+        },
     });
     await win.loadFile(path.join(__dirname, '..', 'index.html'));
     win.webContents.executeJavaScript("document.querySelector('#diagBtn').click()").catch(() => {});
