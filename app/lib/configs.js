@@ -204,8 +204,11 @@ function buildAll({ configDir, torDataDir, i2pDataDir, geoipDir, i2pdContribDir,
     }
     fs.writeFileSync(path.join(configDir, 'torrc'), torrc({
         dataDir: torDataDir,
-        bridges: { use: Boolean(torCfg.useBridges), lines: String(torCfg.bridgesText || '').split(/\r?\n/) },
-        exitCountries: torCfg.exitCountries,
+        bridges: {
+            use: Boolean(torCfg.useBridges),
+            lines: String(torCfg.bridgesText || '').split(/\r?\n/),
+            exitCountries: torCfg.exitCountries,
+        },
         pluginDir: torPluginDir,
     }));
     fs.writeFileSync(path.join(configDir, 'dnscrypt-proxy.toml'), dnscryptToml(dnscryptListen, {

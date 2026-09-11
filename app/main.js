@@ -23,7 +23,8 @@ let win = null;
 let tray = null;
 let trayState = null;
 const trayIcons = {};
-let quitting = false;          // true — выходим по-настоящему, а не сворачиваемся
+let quitting = false;
+const trayInfo = { exit: null, speed: null };   // кэш для меню трея          // true — выходим по-настоящему, а не сворачиваемся
 let balloonShown = false;      // подсказка «работает в трее» — один раз за сессию
 let settings = store.load();
 let supervisor = null;
@@ -116,6 +117,7 @@ function onReady() {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
             tray?.setContextMenu(trayMenu());
+            tray?.setContextMenu(trayMenu());
             /* Системный прокси живёт вместе с Tor: галка-настройка сохраняется,
              * снимается/возвращается только эффект */
             if (payload.name === 'tor') {
@@ -144,6 +146,8 @@ function onReady() {
     initTrayIcons();
     createTray();
     scheduleNewIp();
+    refreshTrayInfo();
+    setInterval(refreshTrayInfo, 5 * 60 * 1000);
 
     /* Авто-обновление: первая проверка через 20 с, далее раз в 4 часа */
     if (!process.env.INVIS_NO_UPDATE) {
@@ -553,6 +557,20 @@ function setTrayState(state) {
     tray.setToolTip(`Invis — ${TRAY_LABELS[state]}`);
 }
 
+/* Лёгкий замер для трея: скорость раз в 5 минут, IP выхода — при живом Tor */
+async function refreshTrayInfo(manual = false) {
+    const viaTor = supervisor?.isRunning('tor');
+    try {
+        const mbps = await netspeed.measure({ viaTor });
+        trayInfo.speed = { mbps, viaTor };
+    } catch (e) { /* оставим прошлое значение */ }
+    if (viaTor) {
+        try { trayInfo.exit = await torspeed.exitInfo(); } catch (e) { /* старое */ }
+    }
+    if (manual) sendToRenderer('modules:event', { text: 'Данные трея обновлены' });
+    tray?.setContextMenu(trayMenu());
+}
+
 function createTray() {
     tray = new Tray(trayIcons.off);
     trayState = 'off';
@@ -567,7 +585,23 @@ function createTray() {
 }
 
 function trayMenu() {
+    const st = supervisor ? supervisor.status() : {};
+    const mark = (n) => (st[n] ? (st[n].state === 'on' ? '✓' : (st[n].state === 'busy' ? '…' : '×')) : '×');
+    const e = trayInfo.exit;
+    const exitLine = supervisor?.isRunning('tor')
+        ? (e ? ('Выход: ' + (e.cc || '??') + ' ' + [e.city, e.country].filter(Boolean).join(', ')
+              + ' · ' + e.ip + (e.pingMs != null
+                 ? ' · ' + (e.pingMs >= 1000 ? (e.pingMs / 1000).toFixed(1) + ' с' : e.pingMs + ' мс') : ''))
+          : 'Выход: проверяю…')
+        : 'Выход: — (Tor выключен)';
+    const sp = trayInfo.speed;
+    const speedLine = sp ? ('Скорость: ↓ ' + sp.mbps + ' Мбит/с (' + (sp.viaTor ? 'через Tor' : 'напрямую') + ')') : 'Скорость: —';
     return Menu.buildFromTemplate([
+        { label: 'Tor ' + mark('tor') + '    DNSCrypt ' + mark('dnscrypt') + '    I2P ' + mark('i2p'), enabled: false },
+        { label: exitLine, enabled: false },
+        { label: speedLine, enabled: false },
+        { label: 'Обновить данные', click: () => { trayInfo.speed = null; refreshTrayInfo(true); } },
+        { type: 'separator' },
         { label: 'Открыть Invis', click: () => showWindow() },
         { type: 'separator' },
         /* Точка расширения: управление модулями через супервизор */
@@ -694,7 +728,8 @@ function setSetting(patch) {
     /* Изменились параметры Tor — bridges требуют пересборки torrc и рестарта */
     if (patch.tor !== undefined) {
         scheduleNewIp();
-        if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
+        rebuildConfigs(); /* новый torrc до рестарта Tor */
+if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
                 || patch.tor.exitCountries !== undefined)
                 && supervisor?.isRunning('tor')) {
             supervisor.stop('tor').then(() => supervisor.start('tor'));
