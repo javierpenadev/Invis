@@ -13,21 +13,21 @@
     <div class="titlebar">
         <img class="titlebar-icon" src="assets/img/logo.svg" alt="">
         <div class="titlebar-drag">Invis</div>
-        <div class="titlebar-speed" id="tbSpeed" data-cursor-text="s" title="Скорость канала — лёгкий замер раз в 5 минут">↓ …</div>
+        <div class="titlebar-speed" id="tbSpeed" title="Скорость канала — лёгкий замер раз в 5 минут">↓ …</div>
         <div class="titlebar-controls">
-            <button class="titlebar-btn speedtest" id="speedBtn" title="Тест скорости через Tor" data-cursor-text="v"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg></button>
-            <button class="titlebar-btn minimize" title="Свернуть" data-cursor-text="—"><svg width="12" height="2" viewBox="0 0 12 2"><rect width="12" height="2" fill="currentColor"/></svg></button>
-            <button class="titlebar-btn devtools" title="DevTools" data-cursor-text="</>"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5L1 7l1 3.5"/><path d="M12 3.5L13 7l-1 3.5"/><path d="M8.8 1.5L5.2 12.5"/></svg></button>
-            <button class="titlebar-btn close" title="Закрыть" data-cursor-text="x"><svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.5"><path d="M1 1l10 10M11 1L1 11"/></svg></button>
+            <button class="titlebar-btn speedtest" id="speedBtn" title="Тест скорости через Tor"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg></button>
+            <button class="titlebar-btn minimize" title="Свернуть"><svg width="12" height="2" viewBox="0 0 12 2"><rect width="12" height="2" fill="currentColor"/></svg></button>
+            <button class="titlebar-btn devtools" title="DevTools"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5L1 7l1 3.5"/><path d="M12 3.5L13 7l-1 3.5"/><path d="M8.8 1.5L5.2 12.5"/></svg></button>
+            <button class="titlebar-btn close" title="Закрыть"><svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.5"><path d="M1 1l10 10M11 1L1 11"/></svg></button>
         </div>
     </div>
 
     <div class="tabbar">
-        <button class="tab-btn active" data-tab="modules" data-cursor-text="::">Модули</button>
-        <button class="tab-btn" data-tab="resolvers" data-cursor-text="::">Резольверы</button>
-        <button class="tab-btn" data-tab="settings" data-cursor-text="*">Настройки</button>
-        <button class="tab-btn" data-tab="querylog" data-cursor-text="=">Лог DNS</button>
-        <button class="tab-btn" data-tab="about" data-cursor-text="i">О программе</button>
+        <button class="tab-btn active" data-tab="modules">Модули</button>
+        <button class="tab-btn" data-tab="resolvers">Резольверы</button>
+        <button class="tab-btn" data-tab="settings">Настройки</button>
+        <button class="tab-btn" data-tab="querylog">Лог DNS</button>
+        <button class="tab-btn" data-tab="about">О программе</button>
     </div>
 
     <!-- Контент: активная вкладка; сверху тайтлбар + таббар, снизу control-bar -->
@@ -60,9 +60,9 @@
             </div>
             <div class="update-badge is-hidden" id="updateBadge">
                 <span class="hint" id="updateText"></span>
-                <button class="mini-btn primary" id="updateBtn" data-cursor-text="v">Обновить</button>
+                <button class="mini-btn primary" id="updateBtn">Обновить</button>
             </div>
-            <button class="gh-btn" id="ghBtn" title="GitHub: javierpenadev/Invis" data-cursor-text="^">
+            <button class="gh-btn" id="ghBtn" title="GitHub: javierpenadev/Invis">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.91-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
             </button>
         </header>
@@ -76,11 +76,11 @@
             </div>
             <div class="exit-info" id="exitInfo">
                 <span id="exitInfoText" class="hint">Запусти Tor — и здесь появится IP выхода</span>
-                <button class="mini-btn ghost" id="exitInfoBtn" data-cursor-text="s">Проверить</button>
+                <button class="mini-btn ghost" id="exitInfoBtn">Проверить</button>
             </div>
 
             <div class="btn-row" style="margin:0 0 10px">
-                <button class="mini-btn" id="diagBtn" data-cursor-text="go"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Проверить</button>
+                <button class="mini-btn" id="diagBtn"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Проверить</button>
             </div>
             <div class="log-view is-hidden" id="diagBox" style="height:130px"></div>
             <div class="hint" style="margin-top:8px">
@@ -94,7 +94,7 @@
                     <span class="module-name">DNSCrypt</span>
                     <span class="module-status hint" id="statusDnscrypt">остановлен</span>
                 </div>
-                <button class="mini-btn module-toggle" data-module="dnscrypt" data-cursor-text="p">Пуск</button>
+                <button class="mini-btn module-toggle" data-module="dnscrypt">Пуск</button>
             </div>
 
             <div class="module-row" data-module="tor">
@@ -103,8 +103,8 @@
                     <span class="module-name">Tor</span>
                     <span class="module-status hint" id="statusTor">остановлен</span>
                 </div>
-                <button class="mini-btn ghost" id="torNewIpBtn" data-cursor-text="r" title="Получить новый выходной IP (NEWNYM)"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg> IP</button>
-                <button class="mini-btn module-toggle" data-module="tor" data-cursor-text="p">Пуск</button>
+                <button class="mini-btn ghost" id="torNewIpBtn" title="Получить новый выходной IP (NEWNYM)"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg> IP</button>
+                <button class="mini-btn module-toggle" data-module="tor">Пуск</button>
             </div>
 
             <div class="module-row" data-module="i2p">
@@ -113,7 +113,7 @@
                     <span class="module-name">I2P</span>
                     <span class="module-status hint" id="statusI2p">остановлен</span>
                 </div>
-                <button class="mini-btn module-toggle" data-module="i2p" data-cursor-text="p">Пуск</button>
+                <button class="mini-btn module-toggle" data-module="i2p">Пуск</button>
             </div>
         </section>
         </div>
@@ -164,7 +164,7 @@
                 <input type="checkbox" id="setAutoUpdate"> Автоматически проверять обновления
             </label>
             <div class="btn-row">
-                <button class="mini-btn ghost" id="checkUpdatesBtn" data-cursor-text="r">Проверить обновления</button>
+                <button class="mini-btn ghost" id="checkUpdatesBtn">Проверить обновления</button>
             </div>
             <label class="check-row">
                 <input type="checkbox" id="setCloseToTray"> При закрытии сворачивать в трей
@@ -188,7 +188,7 @@
             <label class="check-row">
                 <input type="checkbox" id="setSystemProxy"> Направлять системный прокси на Tor
                 <span class="hint">(SOCKS5 127.0.0.1:9050; для Chrome/Edge и приложений с системным прокси)</span>
-                <button class="mini-btn ghost" id="copyProxyBtn" data-cursor-text="c" title="Скопировать строку прокси для отдельного приложения">копировать socks5://127.0.0.1:9050</button>
+                <button class="mini-btn ghost" id="copyProxyBtn" title="Скопировать строку прокси для отдельного приложения">копировать socks5://127.0.0.1:9050</button>
             </label>           
 
             <div class="settings-subtitle">Tor</div>
@@ -199,11 +199,11 @@
                 <textarea class="text-input" id="setBridges" rows="4" spellcheck="false"
                           placeholder="obfs4 1.2.3.4:443 cert=... iat-mode=0&#10;(по одной строке на мост, префикс Bridge не нужен)"></textarea>
                 <div class="btn-row">
-                    <button class="mini-btn" id="fetchBridgesBtn" data-cursor-text="v">Запросить мосты obfs4</button>
+                    <button class="mini-btn" id="fetchBridgesBtn">Запросить мосты obfs4</button>
                     <span class="hint">В комплекте: obfs4 (lyrebird), conjure. Полученные строки можно править.</span>
                 </div>
             </div>
-            <div class="settings-subtitle">Страна выхода Tor <button class="mini-btn ghost" id="countriesRefreshBtn" data-cursor-text="r" style="margin-left:8px">Обновить данные</button></div>
+            <div class="settings-subtitle">Страна выхода Tor <button class="mini-btn ghost" id="countriesRefreshBtn" style="margin-left:8px">Обновить данные</button></div>
             <div id="exitCountries" class="country-list"></div>
             <div class="hint">Пусто — любая страна. Выбранные страны жёстко ограничивают выходные узлы (StrictNodes), Tor перезапустится. По странам: число выходных узлов и их суммарная скорость (Onionoo).</div>
             <div class="settings-subtitle">Автосмена IP Tor</div>
@@ -224,8 +224,8 @@
             <h3>О программе</h3>
             <div class="about-text" id="aboutText">Загрузка…</div>
             <div class="btn-row" style="margin-top:12px">
-                <button class="mini-btn ghost" id="i2pConsoleBtn" data-cursor-text="^">Консоль I2P</button>
-                <button class="mini-btn ghost" id="logsFolderBtn" data-cursor-text="=">Папка логов</button>
+                <button class="mini-btn ghost" id="i2pConsoleBtn">Консоль I2P</button>
+                <button class="mini-btn ghost" id="logsFolderBtn">Папка логов</button>
             </div>
         </section>
         </div>
@@ -237,8 +237,8 @@
                 <input type="checkbox" id="setQueryLog"> Писать лог запросов
             </label>
             <div class="btn-row">
-                <button class="mini-btn" id="qlRefreshBtn" data-cursor-text="r">Обновить</button>
-                <button class="mini-btn ghost" id="qlClearBtn" data-cursor-text="x">Очистить</button>
+                <button class="mini-btn" id="qlRefreshBtn">Обновить</button>
+                <button class="mini-btn ghost" id="qlClearBtn">Очистить</button>
                 <input type="text" class="text-input grow" id="qlFilter" placeholder="Фильтр…" spellcheck="false" style="flex:1">
             </div>
             <div class="log-view" id="qlView" style="height:180px">Лог пуст</div>
@@ -265,8 +265,8 @@
 
         <div class="control-bar__slot control-bar__slot--actions">
             <div class="action-switcher">
-                <button class="action-btn primary" id="startAllBtn" data-cursor-text="go"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> Запустить всё</button>
-                <button class="action-btn secondary" id="stopAllBtn" data-cursor-text="x">Остановить</button>
+                <button class="action-btn primary" id="startAllBtn"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> Запустить всё</button>
+                <button class="action-btn secondary" id="stopAllBtn">Остановить</button>
             </div>
         </div>
     </div>

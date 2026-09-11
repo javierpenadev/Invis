@@ -663,7 +663,7 @@
         const pills = [{ cc: '', label: 'Любая' }, ...codes.map((cc) => ({ cc, label: cc }))];
         box.innerHTML = '<span class="qc-label">Выход Tor:</span>' + pills.map((p) =>
             '<button class="qc-pill' + ((p.cc === '' && !quickCt.selected.size) || quickCt.selected.has(p.cc) ? ' active' : '') + '" data-cc="'
-            + StringUtils.escape(p.cc) + '" data-cursor-text="s">' + StringUtils.escape(p.label) + '</button>').join('');
+            + StringUtils.escape(p.cc) + '">' + StringUtils.escape(p.label) + '</button>').join('');
         box.querySelectorAll('.qc-pill').forEach((b) => b.addEventListener('click', () => {
             const cc = b.dataset.cc;
             if (!cc) quickCt.selected.clear();

@@ -10,19 +10,19 @@ input,textarea,select,[contenteditable="true"]{-webkit-user-select:text;user-sel
 
 html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#1e1e2f;}
 
-/* ---------- кастомный курсор ---------- */
+/* ---------- кастомный курсор: точка + кольцо-контур (js/cursor-fx.js) ---------- */
 .cursor-layer{position:fixed;inset:0;pointer-events:none;z-index:1500}
-.cursor-ball{position:absolute;left:0;top:0;width:12px;height:12px;transform:translate(-50%,-50%);border-radius:999px;background:#4f4fef;border:1px solid transparent;transition:background-color .22s ease,color .22s ease,box-shadow .22s ease,border-color .22s ease,border-radius .22s ease,border-width .22s ease;box-shadow:0 12px 30px -14px rgba(79,79,239,.72)}
-.cursor-ball.is-light{background:#eef0ff}
-.cursor-ball.is-ring{background:transparent;border-width:2px;border-color:rgba(79,79,239,.9);box-shadow:0 0 0 1px rgba(255,255,255,.35),0 12px 30px -18px rgba(79,79,239,.9)}
-.cursor-ball.is-field-target{background:transparent;border-width:2px;border-color:rgba(79,79,239,.95);border-radius:6px;box-shadow:0 0 0 1px rgba(255,255,255,.42),0 12px 26px -18px rgba(79,79,239,.9)}
-.cursor-lens{position:absolute;inset:0;border-radius:inherit;overflow:hidden;opacity:0;pointer-events:none;transition:opacity .14s ease;background:rgba(255,255,255,.08)}
-.cursor-ball.is-lens .cursor-lens{opacity:1}
-.cursor-lens-source,.cursor-lens-source *{pointer-events:none!important}
-.cursor-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#eef0ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:0;transition:color .22s ease,opacity .18s ease;white-space:nowrap}
-.cursor-ball.is-light .cursor-label{color:#4f4fef}
-.cursor-ball.is-ring .cursor-label,.cursor-ball.is-lens .cursor-label{opacity:0!important}
-.cursor-ball.is-field-target .cursor-label{inset:auto auto auto 50%;top:calc(100% + 8px);transform:translateX(-50%);height:auto;color:#4f4fef;font-size:11px;letter-spacing:.03em;text-transform:none;text-shadow:0 1px 2px rgba(255,255,255,.9)}
+/* точка: метка курсора; над кнопками сжимается, над полями растягивается в «каретку» */
+.cursor-ball{position:absolute;left:0;top:0;width:10px;height:10px;border-radius:999px;
+  background:#9b9bff;border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 0 10px -2px rgba(116,116,255,.85),0 2px 8px -4px rgba(0,0,0,.6);
+  will-change:transform,width,height,opacity}
+/* кольцо: принимает контур интерактивного элемента; рисуется только СНАРУЖИ
+ * его границ (+5px), поэтому никогда не перекрывает подписи и иконки */
+.cursor-ring{position:absolute;left:0;top:0;width:0;height:0;border-radius:12px;
+  border:1.5px solid rgba(148,148,255,.95);opacity:0;
+  box-shadow:0 0 16px -5px rgba(116,116,255,.75),inset 0 0 12px -8px rgba(148,148,255,.55);
+  will-change:transform,width,height,border-radius,opacity}
 @media (hover:none){.cursor-layer{display:none}}
 
 /* ---------- каркас: таббар + активная вкладка; низ — control-bar ---------- */
