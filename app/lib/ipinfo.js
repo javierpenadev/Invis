@@ -72,18 +72,29 @@ async function getTorIp(socksPort = 9050, timeout = 20000) {
             sock.write('GET /api/ip HTTP/1.1\r\nHost: check.torproject.org\r\nConnection: close\r\n\r\n');
         });
         let data = '';
+        let settled = false;
+        const settle = (fn, arg) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(tlsTo);
+            sock.removeAllListeners();
+            try { raw.destroy(); } catch (e) { /* ок */ }
+            fn(arg);
+        };
         sock.on('data', (c) => { data += c.toString(); });
         sock.on('end', () => {
-            clearTimeout(tlsTo);
             const body = data.split('\r\n\r\n').slice(1).join('\r\n\r\n');
             try {
                 const j = JSON.parse(body);
-                resolve({ ip: j.IP, isTor: Boolean(j.IsTor) });
+                settle(resolve, { ip: j.IP, isTor: Boolean(j.IsTor) });
             } catch (e) {
-                reject(new Error('неожиданный ответ'));
+                settle(reject, new Error('неожиданный ответ'));
             }
         });
-        sock.on('error', (e) => { clearTimeout(tlsTo); reject(e); });
+        /* 'close' без 'end' (RST от exit-узла) раньше не завершал промис вовсе —
+         * диагностика висела до 20-с таймаута; после нормального 'end' это no-op */
+        sock.on('close', () => settle(reject, new Error('соединение закрыто до конца ответа')));
+        sock.on('error', (e) => settle(reject, e));
     });
 }
 

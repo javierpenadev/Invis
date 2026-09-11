@@ -38,12 +38,12 @@ function dnsQueryTcp(port, domain = 'ya.ru', timeout = 5000) {
             if (buf.length < 2) return;
             const need = buf.readUInt16BE(0);
             if (buf.length < need + 2) return;
-            clearTimeout(to);
             const msg = buf.slice(2, need + 2);      // само сообщение (без префикса длины)
             const rcode = msg[3] & 0x0f;
             const ancount = msg.readUInt16BE(6);
-            if (rcode === 0 && ancount > 0) resolve({ ok: true, detail: `ответ: ${ancount} запис(ей)` });
-            else resolve({ ok: false, detail: `код ответа ${rcode}` });
+            /* Успех тоже через finish(): раньше сокет не закрывался и утекал */
+            if (rcode === 0 && ancount > 0) finish({ ok: true, detail: `ответ: ${ancount} запис(ей)` });
+            else finish({ ok: false, detail: `код ответа ${rcode}` });
         });
         sock.on('error', (e) => { clearTimeout(to); finish({ ok: false, detail: e.message }); });
     });

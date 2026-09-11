@@ -76,7 +76,7 @@ class DaemonSupervisor {
         };
         this.list = Object.keys(this.specs);
         this.state = {};
-        for (const name of this.list) this.state[name] = { proc: null, state: 'off', status: 'остановлен', stopping: false, logTimer: null };
+        for (const name of this.list) this.state[name] = { proc: null, state: 'off', status: 'остановлен', stopping: false };
         this.logs = {};
     }
 
@@ -162,6 +162,14 @@ class DaemonSupervisor {
                     this._set(name, 'busy', 'подключается…');
                 }
             }, 20000);
+            /* Цензурная сеть или мёртвые мосты: bootstrap может не дойти до 100%
+             * никогда — не висим в «подключается…» вечно (раньше состояние было
+             * пожизненным до ручной остановки) */
+            setTimeout(() => {
+                if (this.state[name].proc === proc && this.state[name].state === 'busy') {
+                    this._set(name, 'error', 'не подключился за 4 мин (мосты/сеть?) — попробуйте перезапустить');
+                }
+            }, 240000);
         } else {
             waitReady(spec.probePort).then((ok) => {
                 if (this.state[name].proc === proc && this.state[name].state === 'busy') {
@@ -207,14 +215,25 @@ class DaemonSupervisor {
         this._set(name, 'busy', 'остановка…');
         const proc = st.proc;
         st.stopPromise = new Promise((resolve) => {
+            let exited = false;
+            const done = () => { if (!exited) { exited = true; resolve(); } };
             /* Резолвимся по 'exit', а не по завершению taskkill: 'exit' прилетает
              * позже, и ранний start() молча натыкался на ещё живый st.proc */
-            const done = () => resolve();
             proc.once('exit', done);
             proc.once('error', done);
             /* /T — дерево процессов, /F — форсированно */
             execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {});
-            setTimeout(done, 5000); // страховка, если 'exit' так и не придёт
+            /* Страховка, если 'exit' так и не придёт: раньше зомби st.proc
+             * навсегда блокировал очередь start() и модуль зависал в «остановка…» */
+            setTimeout(() => {
+                if (this.state[name].proc === proc) {
+                    this.state[name].proc = null;
+                    this.logs[name]?.end();
+                    this.logs[name] = null;
+                    this._set(name, 'error', 'не остановился по taskkill — слот освобождён принудительно');
+                }
+                done();
+            }, 5000);
         }).finally(() => { st.stopPromise = null; });
         return st.stopPromise;
     }
