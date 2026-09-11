@@ -6,7 +6,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const CURL = path.join(process.env.SystemRoot || 'C:\Windows', 'System32', 'curl.exe');
+const CURL = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'curl.exe');
 
 function measure({ viaTor = false, bytes = 1048576, timeoutMs = 25000 } = {}) {
     return new Promise((resolve, reject) => {

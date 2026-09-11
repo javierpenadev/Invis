@@ -511,8 +511,8 @@
             label.className = 'check-row';
             const hint = countryHint(cc);
             label.innerHTML = `<input type="checkbox" ${countryState.selected.has(cc) ? 'checked' : ''}>`
-                + `<span class="country-code">${cc}</span> ${StringUtils.escape(name)}`
-                + (hint ? ` <span class="hint">${hint}</span>` : '');
+                + `<span class="country-code">${StringUtils.escape(cc)}</span> ${StringUtils.escape(name)}`
+                + (hint ? ` <span class="hint">${StringUtils.escape(hint)}</span>` : '');
             label.querySelector('input').addEventListener('change', (e) => {
                 e.target.checked ? countryState.selected.add(cc) : countryState.selected.delete(cc);
                 UIBridge.invoke('settings:set', { tor: { exitCountries: [...countryState.selected] } });
@@ -529,7 +529,7 @@
         countryState.data = r;
         if (!r || !r.ok) {
             const el = $('#exitCountries');
-            if (el) el.innerHTML = `<span class="hint">${(r && r.error) || 'Данные Onionoo недоступны'} — страны всё равно можно выбирать</span>`;
+            if (el) el.innerHTML = `<span class="hint">${StringUtils.escape((r && r.error) || 'Данные Onionoo недоступны')} — страны всё равно можно выбирать</span>`;
         }
         renderCountries();
     };
@@ -657,7 +657,8 @@
         const codes = [...new Set([...quickCt.top, ...quickCt.selected, ...QC_FIRST])].slice(0, 12);
         const pills = [{ cc: '', label: 'Любая' }, ...codes.map((cc) => ({ cc, label: cc }))];
         box.innerHTML = '<span class="qc-label">Выход Tor:</span>' + pills.map((p) =>
-            '<button class="qc-pill' + ((p.cc === '' && !quickCt.selected.size) || quickCt.selected.has(p.cc) ? ' active' : '') + '" data-cc="' + p.cc + '" data-cursor-text="s">' + p.label + '</button>').join('');
+            '<button class="qc-pill' + ((p.cc === '' && !quickCt.selected.size) || quickCt.selected.has(p.cc) ? ' active' : '') + '" data-cc="'
+            + StringUtils.escape(p.cc) + '" data-cursor-text="s">' + StringUtils.escape(p.label) + '</button>').join('');
         box.querySelectorAll('.qc-pill').forEach((b) => b.addEventListener('click', () => {
             const cc = b.dataset.cc;
             if (!cc) quickCt.selected.clear();

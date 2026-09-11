@@ -44,6 +44,23 @@ function getJson(url, timeoutMs = 30000) {
  * fresh=true — данные только что из сети; false — из кэша (или кэш протух,
  * тогда fresh=true при удаче). При сетевой ошибке отдаём протухший кэш.
  */
+
+/* Данные уходят в innerHTML рендерера: пропускаем только строгую схему
+ * { AA: { count, mbps } } — и для свежих данных, и для прочитанных из
+ * кэша (файл в userData может быть подменён/повреждён). */
+function sanitizeCountries(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [cc, v] of Object.entries(raw)) {
+        if (!/^[A-Z]{2}$/.test(cc) || !v || typeof v !== 'object') continue;
+        out[cc] = {
+            count: Math.max(0, Math.round(Number(v.count) || 0)),
+            mbps: Math.max(0, Math.round(Number(v.mbps) || 0)),
+        };
+    }
+    return out;
+}
+
 async function exitCountries(cacheDir, { force = false } = {}) {
     const file = cacheFile(cacheDir);
     let cached = null;
@@ -52,7 +69,7 @@ async function exitCountries(cacheDir, { force = false } = {}) {
     } catch (e) { /* кэша нет */ }
     const cacheUsable = cached && (Date.now() - cached.ts) < TTL_MS;
     if (cacheUsable && !force) {
-        return { ok: true, countries: cached.countries, fresh: false, ts: cached.ts };
+        return { ok: true, countries: sanitizeCountries(cached.countries), fresh: false, ts: cached.ts };
     }
     try {
         const rel = await getJson(URL_);
@@ -60,17 +77,17 @@ async function exitCountries(cacheDir, { force = false } = {}) {
         const agg = {};
         for (const r of rel.relays || []) {
             const cc = String(r.country || '').toUpperCase();
-            if (!cc || cc.length !== 2) continue;
+            if (!/^[A-Z]{2}$/.test(cc)) continue;
             if (!agg[cc]) agg[cc] = { count: 0, mbps: 0 };
             agg[cc].count += 1;
-            agg[cc].mbps += (r.advertised_bandwidth || 0) / 125000; /* байт/с -> Мбит/с */
+            agg[cc].mbps += (Number(r.advertised_bandwidth) || 0) / 125000; /* байт/с -> Мбит/с */
         }
         for (const cc of Object.keys(agg)) agg[cc].mbps = Math.round(agg[cc].mbps);
         const out = { ts: Date.now(), countries: agg };
         try { fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(file, JSON.stringify(out)); } catch (e) { /* кэш не критичен */ }
-        return { ok: true, countries: agg, fresh: true, ts: out.ts };
+        return { ok: true, countries: sanitizeCountries(agg), fresh: true, ts: out.ts };
     } catch (e) {
-        if (cached) return { ok: true, countries: cached.countries, fresh: false, ts: cached.ts, stale: true };
+        if (cached) return { ok: true, countries: sanitizeCountries(cached.countries), fresh: false, ts: cached.ts, stale: true };
         return { ok: false, error: e.message };
     }
 }

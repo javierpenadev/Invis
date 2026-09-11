@@ -23,8 +23,8 @@ let win = null;
 let tray = null;
 let trayState = null;
 const trayIcons = {};
-let quitting = false;
-const trayInfo = { exit: null, speed: null };   // кэш для меню трея          // true — выходим по-настоящему, а не сворачиваемся
+let quitting = false;          // true — выходим по-настоящему, а не сворачиваемся
+const trayInfo = { exit: null, speed: null };   // кэш для меню трея
 let balloonShown = false;      // подсказка «работает в трее» — один раз за сессию
 let settings = store.load();
 let supervisor = null;
@@ -116,7 +116,6 @@ function onReady() {
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
-            tray?.setContextMenu(trayMenu());
             tray?.setContextMenu(trayMenu());
             /* Системный прокси живёт вместе с Tor: галка-настройка сохраняется,
              * снимается/возвращается только эффект */
