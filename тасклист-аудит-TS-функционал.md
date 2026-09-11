@@ -3,7 +3,7 @@
 Дата аудита: 2026-09-11 · База: v1.9.4 (HEAD `67868b5`, ветка `main`, чистое дерево)
 Объём: ~4200 LOC JS, 25 файлов (main 1115, renderer 930+271+66, lib 14 модулей, 5 tools), 0 runtime-зависимостей, Electron 44, CJS.
 
-> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены SEC-2, SEC-3, SEC-4 (вариант Б), BUG-1..BUG-11 и P2 «комментарий-сирота»; частично SEC-8 (dns-restore и update-скрипты уже в mkdtemp, остался proxy-refresh). Решение по обновлятору: вариант Б. Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
+> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены SEC-1..SEC-4 (вариант Б), BUG-1..BUG-13 и P2 «комментарий-сирота»; частично SEC-8 (dns-restore и update-скрипты уже в mkdtemp, остался proxy-refresh). Решение по обновлятору: вариант Б. Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
 
 Пути: `main.js` = `app/main.js`, `lib/*` = `app/lib/*`, `js/*` = `app/js/*` (если не указано иное).
 
@@ -55,7 +55,7 @@ Kill switch (тасклист 3.3), просмотрщик логов демон
 
 ### P0 — критично (делать в первую очередь, отдельным релизом)
 
-- [ ] **SEC-1. Отключить Node в рендерере: preload + contextIsolation.** main.js:483-490 (`nodeIntegration:true, contextIsolation:false, sandbox:false`), мост — js/electron-bridge.js:8-11 (берёт ipcRenderer прямо из страницы, без allowlist). Нет `setWindowOpenHandler` и `will-navigate` — открытие/навигация на внешний URL наследует webPreferences.
+- [x] **SEC-1. Отключить Node в рендерере: preload + contextIsolation.** main.js:483-490 (`nodeIntegration:true, contextIsolation:false, sandbox:false`), мост — js/electron-bridge.js:8-11 (берёт ipcRenderer прямо из страницы, без allowlist). Нет `setWindowOpenHandler` и `will-navigate` — открытие/навигация на внешний URL наследует webPreferences.
   1. `nodeIntegration:false, contextIsolation:true, sandbox:true`.
   2. Создать `preload.js` (CJS): `contextBridge.exposeInMainWorld('invis', {...})` с явным allowlist-каналов (см. типы IPC в TS-фазе).
   3. `win.webContents.setWindowOpenHandler(() => ({action:'deny'}))`; `will-navigate` — только свой `file://`.
@@ -105,7 +105,7 @@ CSP `default-src 'self'` (index.html:5); Tor CookieAuthentication/ClientOnly/NoE
 - [x] **BUG-10. Двойная проверка обновлений при включении autoUpdate.** js/app.js:156 шлёт `update:check`, main.js:720 делает то же внутри setSetting. Убрать одну.
 - [x] **BUG-11. Задвоенный rebuild трей-меню.** main.js:119-120 — `tray?.setContextMenu(trayMenu())` дважды подряд (copy-paste).
 - [ ] **BUG-12. `npm run make-icons` сломан на чистом клоне.** tools/make-icons.js:15-16 требуют `sharp`/`png-to-ico`, которых нет в package.json. Объявить devDeps или пометить скрипт как опциональный.
-- [ ] **BUG-13. tools/screenshot.js: стабы отстали от схемы.** Нет стаба `tor:countries` (app.js:527 вызовет unhandled rejection, пустая страна на всех скриншотах), в стабе настроек нет `tor`-секции и `dnscrypt.presets`/`blockBrowserDoh`. Переписать на общий тип Settings (см. TS-фазу) — исчезнет как класс.
+- [x] **BUG-13. tools/screenshot.js: стабы отстали от схемы.** Нет стаба `tor:countries` (app.js:527 вызовет unhandled rejection, пустая страна на всех скриншотах), в стабе настроек нет `tor`-секции и `dnscrypt.presets`/`blockBrowserDoh`. Переписать на общий тип Settings (см. TS-фазу) — исчезнет как класс.
 
 ### P2 — мелочи и мусор
 
