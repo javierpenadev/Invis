@@ -172,9 +172,12 @@ function onReady() {
         if (settings.autoUpdate) setTimeout(() => checkForUpdates(true), 20000);
         setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
     }
-    /* мусор от прошлых обновлений portable-версии */
+    /* мусор от прошлых обновлений portable-версии: настоящий лаунчер лежит в
+     * PORTABLE_EXECUTABLE_DIR, а не рядом с process.execPath (это temp-копия) */
     if (app.isPackaged && process.env.PORTABLE_EXECUTABLE_DIR) {
-        try { fs.unlinkSync(path.join(path.dirname(process.execPath), 'Invis.exe.old')); } catch (e) { /* нет файла */ }
+        try {
+            fs.unlinkSync(path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'Invis.exe.old'));
+        } catch (e) { /* нет файла */ }
     }
 
     startupWarnings.forEach((w, i) => {
@@ -920,7 +923,7 @@ const REPO_RELEASES = `https://github.com/${updater.REPO}/releases/latest`;
 const updateState = {
     available: false, version: null,
     downloading: false, percent: 0,
-    setupUrl: null, portableUrl: null,
+    setupUrl: null, portableUrl: null, sumsUrl: null,
 };
 
 async function checkForUpdates(manual = false) {
@@ -932,6 +935,7 @@ async function checkForUpdates(manual = false) {
             updateState.version = rel.version;
             updateState.setupUrl = rel.setupUrl;
             updateState.portableUrl = rel.portableUrl;
+            updateState.sumsUrl = rel.sumsUrl;
             sendToRenderer('update:available', { version: rel.version });
         } else if (manual) {
             sendToRenderer('modules:event', { text: `У вас последняя версия (v${app.getVersion()})` });
@@ -941,7 +945,9 @@ async function checkForUpdates(manual = false) {
     }
 }
 
-/* Установка: скачиваем файл релиза и перезапускаемся через cmd-сценарий.
+/* Установка: скачиваем файл релиза, сверяем SHA-256 с SHA256SUMS.txt релиза
+ * (без sums-файла или при несовпадении тихая установка НЕ запускается) и
+ * перезапускаемся через cmd-сценарий.
  * NSIS: ждём выхода Invis -> тихая установка (/S) -> автозапуск.
  * Portable: переименовываем запущенный exe (Windows это разрешает), подкладываем новый. */
 async function startUpdate() {
@@ -953,6 +959,12 @@ async function startUpdate() {
     const portable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR);
     const assetUrl = portable ? updateState.portableUrl : updateState.setupUrl;
     if (!assetUrl) { sendToRenderer('modules:event', { text: 'В релизе нет подходящего файла' }); return; }
+    if (!updateState.sumsUrl) {
+        sendToRenderer('modules:event', {
+            text: 'В релизе нет SHA256SUMS.txt — авто-установка отменена. Скачайте вручную: ' + REPO_RELEASES,
+        });
+        return;
+    }
 
     updateState.downloading = true;
     updateState.percent = 0;
@@ -968,13 +980,38 @@ async function startUpdate() {
         });
     } catch (e) {
         updateState.downloading = false;
+        try { fs.unlinkSync(dest); } catch (_e) { /* не создан */ }
         sendToRenderer('update:progress', { error: e.message });
+        return;
+    }
+
+    /* Проверка целостности перед запуском скачанного exe */
+    try {
+        const sums = updater.parseSums(await updater.getText(updateState.sumsUrl));
+        const expected = sums[path.basename(assetUrl)];
+        const actual = await updater.sha256File(dest);
+        if (!expected) throw new Error('нет суммы для файла в SHA256SUMS.txt');
+        if (expected !== actual) throw new Error('сумма не совпала');
+        netmodeLog(`Обновление v${updateState.version}: SHA-256 сверен`);
+    } catch (e) {
+        updateState.downloading = false;
+        try { fs.unlinkSync(dest); } catch (_e) { /* уже нет */ }
+        netmodeLog(`Обновление v${updateState.version}: проверка целостности не пройдена (${e.message})`);
+        sendToRenderer('update:progress', {
+            error: `Проверка целостности не пройдена (${e.message}) — установка отменена`,
+        });
         return;
     }
     updateState.downloading = false;
     sendToRenderer('update:downloaded', {});
 
-    const exe = process.execPath;
+    /* Portable: process.execPath — временный распакованный exe, настоящий
+     * лаунчер лежит в PORTABLE_EXECUTABLE_DIR (раньше обновляли не тот файл) */
+    let exe = process.execPath;
+    if (portable) {
+        exe = path.join(process.env.PORTABLE_EXECUTABLE_DIR,
+            process.env.PORTABLE_EXECUTABLE_FILENAME || 'Invis.exe');
+    }
     const dir = path.dirname(exe);
     const q = (s) => `"${s}"`;
     let cmdLines;
@@ -999,16 +1036,19 @@ async function startUpdate() {
             'exit',
         ];
     }
-    const cmdPath = path.join(app.getPath('temp'), 'invis-update.cmd');
+    /* Случайный каталог в %TEMP% вместо предсказуемых имён (подмена между
+     * записью и запуском) */
+    const tmpDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'invis-update-'));
+    const cmdPath = path.join(tmpDir, 'update.cmd');
     fs.writeFileSync(cmdPath, cmdLines.join(String.fromCharCode(13, 10)), 'utf8');
     /* Тихий запуск: прямой spawn cmd моргал консольными окнами. wscript —
      * GUI-процесс без консоли, а сам cmd выполняется со скрытым окном (стиль 0) */
-    const vbsPath = path.join(app.getPath('temp'), 'invis-update.vbs');
+    const vbsPath = path.join(tmpDir, 'update.vbs');
     const vbs = 'CreateObject("WScript.Shell").Run """' + cmdPath.replace(/"/g, '""') + '""", 0, False';
     fs.writeFileSync(vbsPath, '\ufeff' + vbs, 'utf16le'); // UTF-16 + BOM: temp может содержать не-ASCII
     spawn('wscript', ['//B', vbsPath], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
     quitting = true;
-    netmodeLog(`Обновление на v${updateState.version}: файл скачан, приложение перезапустится через установку`);
+    netmodeLog(`Обновление на v${updateState.version}: файл скачан и сверен, приложение перезапустится через установку`);
     setTimeout(() => app.quit(), 300);
 }
 

@@ -9,6 +9,7 @@
     "make-icons": "node tools/make-icons.js",
     "check": "node tools/dev-check.js",
     "dist": "electron-builder --win",
+    "checksums": "node tools/make-checksums.js",
     "dist:nsis": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable",
     "check-settings": "node tools/check-settings.js"
