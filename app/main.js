@@ -115,6 +115,7 @@ function onReady() {
         onState: (payload) => {
             sendToRenderer('modules:state', payload);
             setTrayState(aggregateTrayState());
+            tray?.setContextMenu(trayMenu());
             /* Системный прокси живёт вместе с Tor: галка-настройка сохраняется,
              * снимается/возвращается только эффект */
             if (payload.name === 'tor') {

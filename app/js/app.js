@@ -648,6 +648,67 @@
         else { const el = $('#vpngateList'); if (el) el.innerHTML = '<span class="hint">VPNGate недоступен: ' + StringUtils.escape((r && r.error) || '') + '. Можно импортировать свой .ovpn.</span>'; }
     };
 
+    /* ---------- быстрый выбор страны выхода Tor ---------- */
+    const quickCt = { selected: new Set(), top: [], busy: false };
+    const QC_FIRST = ['DE', 'NL', 'US', 'SE', 'CH', 'FI', 'FR', 'GB'];
+    const renderQuickCountries = () => {
+        const box = $('#quickCountries');
+        if (!box) return;
+        const codes = [...new Set([...quickCt.top, ...quickCt.selected, ...QC_FIRST])].slice(0, 12);
+        const pills = [{ cc: '', label: 'Любая' }, ...codes.map((cc) => ({ cc, label: cc }))];
+        box.innerHTML = '<span class="qc-label">Выход Tor:</span>' + pills.map((p) =>
+            '<button class="qc-pill' + ((p.cc === '' && !quickCt.selected.size) || quickCt.selected.has(p.cc) ? ' active' : '') + '" data-cc="' + p.cc + '" data-cursor-text="s">' + p.label + '</button>').join('');
+        box.querySelectorAll('.qc-pill').forEach((b) => b.addEventListener('click', () => {
+            const cc = b.dataset.cc;
+            if (!cc) quickCt.selected.clear();
+            else quickCt.selected.has(cc) ? quickCt.selected.delete(cc) : quickCt.selected.add(cc);
+            UIBridge.invoke('settings:set', { tor: { exitCountries: [...quickCt.selected] } });
+            renderQuickCountries();
+            InvisUI.setStatus(quickCt.selected.size
+                ? 'Выход Tor: ' + [...quickCt.selected].join(', ').toUpperCase() + ' — Tor перезапускается'
+                : 'Выход Tor: любая страна — Tor перезапускается');
+        }));
+    };
+    const applyQuickFromSettings = (s2) => {
+        quickCt.selected = new Set(s2?.tor?.exitCountries || []);
+        renderQuickCountries();
+    };
+    const initQuickCountries = async () => {
+        try { applyQuickFromSettings(await UIBridge.invoke('settings:get')); } catch (e) {}
+        renderQuickCountries(); /* сразу, без ожидания сети */
+        try {
+            const c = await UIBridge.invoke('tor:countries', {});
+            if (c && c.ok) {
+                quickCt.top = Object.entries(c.countries)
+                    .sort((a, b) => b[1].mbps - a[1].mbps).slice(0, 8).map(([cc]) => cc);
+                renderQuickCountries();
+            }
+        } catch (e) { /* пилюли уже отрисованы */ }
+        UIBridge.on('settings:changed', applyQuickFromSettings);
+    };
+
+    /* ---------- скорость канала в шапке ---------- */
+    const tbSpeed = { busy: false };
+    const measureSpeed = async () => {
+        if (tbSpeed.busy) return;
+        tbSpeed.busy = true;
+        const viaTor = moduleStates.tor === 'on';
+        const el = $('#tbSpeed');
+        try {
+            const mbps = await UIBridge.invoke('net:speed', { viaTor });
+            const v = mbps >= 10 ? String(Math.round(mbps)) : mbps.toFixed(1);
+            if (el) el.textContent = '↓ ' + v + ' Мбит/с' + (viaTor ? ' · Tor' : '');
+        } catch (e) { if (el) el.textContent = '↓ …'; }
+        tbSpeed.busy = false;
+    };
+    const initTitlebarSpeed = () => {
+        measureSpeed();
+        setInterval(measureSpeed, 5 * 60 * 1000); /* лёгкий замер 1 МБ раз в 5 минут */
+        UIBridge.on('modules:state', ({ name, state }) => {
+            if (name === 'tor' && (state === 'on' || state === 'off')) setTimeout(measureSpeed, 1500);
+        });
+    };
+
     /* ---------- IP выхода Tor: страна, город, пинг ---------- */
     const initExitInfo = () => {
         const run = async () => {
@@ -852,6 +913,8 @@
         initTor();
         initTorCountries();
         initSpeedTest();
+        initQuickCountries();
+        initTitlebarSpeed();
         initExitInfo();
         initCopyProxy();
         initDiag();

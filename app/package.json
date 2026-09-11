@@ -1,6 +1,6 @@
 {
   "name": "invis",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "Invis — Tor + DNSCrypt + I2P для Windows (Electron UI, tray-приложение, системный DNS)",
   "main": "main.js",
   "scripts": {
