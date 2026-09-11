@@ -33,7 +33,7 @@ const INVOKE = new Set([
 /* подписки на события main → рендерер (webContents.send) */
 const ON = new Set([
     'modules:state', 'modules:event', 'settings:changed',
-    'diag:result',
+    'diag:result', 'net:speed:result',
     'update:available', 'update:progress', 'update:downloaded',
 ]);
 

@@ -620,24 +620,25 @@
     };
 
     /* ---------- скорость канала в шапке ---------- */
-    const tbSpeed = { busy: false };
-    const measureSpeed = async () => {
-        if (tbSpeed.busy) return;
-        tbSpeed.busy = true;
-        const viaTor = moduleStates.tor === 'on';
-        const el = $('#tbSpeed');
-        try {
-            const mbps = await UIBridge.invoke('net:speed', { viaTor });
-            const v = mbps >= 10 ? String(Math.round(mbps)) : mbps.toFixed(1);
-            if (el) el.textContent = '↓ ' + v + ' Мбит/с' + (viaTor ? ' · Tor' : '');
-        } catch (e) { if (el) el.textContent = '↓ …'; }
-        tbSpeed.busy = false;
-    };
+    /* Замер делает только main (трей, раз в 5 минут) и пушит результат;
+     * рендерер дозапрашивает сам лишь при переходе Tor вкл/выкл. Раньше
+     * рендерер и main качали по 1 МБ каждые 5 минут независимо. */
     const initTitlebarSpeed = () => {
-        measureSpeed();
-        setInterval(measureSpeed, 5 * 60 * 1000); /* лёгкий замер 1 МБ раз в 5 минут */
+        const el = $('#tbSpeed');
+        const show = (mbps, viaTorNow) => {
+            if (mbps == null) return;
+            const v = mbps >= 10 ? String(Math.round(mbps)) : mbps.toFixed(1);
+            if (el) el.textContent = '↓ ' + v + ' Мбит/с' + (viaTorNow ? ' · Tor' : '');
+        };
+        const measure = async () => {
+            const viaTor = moduleStates.tor === 'on';
+            try { show(await UIBridge.invoke('net:speed', { viaTor }), viaTor); }
+            catch (e) { if (el) el.textContent = '↓ …'; }
+        };
+        UIBridge.on('net:speed:result', ({ mbps, viaTor }) => show(mbps, viaTor));
+        measure();
         UIBridge.on('modules:state', ({ name, state }) => {
-            if (name === 'tor' && (state === 'on' || state === 'off')) setTimeout(measureSpeed, 1500);
+            if (name === 'tor' && (state === 'on' || state === 'off')) setTimeout(measure, 1500);
         });
     };
 

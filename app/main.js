@@ -623,7 +623,9 @@ function setTrayState(state) {
     tray.setToolTip(`Invis — ${TRAY_LABELS[state]}`);
 }
 
-/* Лёгкий замер для трея: скорость раз в 5 минут, IP выхода — при живом Tor */
+/* Лёгкий замер для трея: скорость раз в 5 минут, IP выхода — при живом Tor.
+ * Это ЕДИНСТВЕННЫЙ таймер замера в приложении: результат пушится рендереру
+ * в шапку (раньше рендерер качал свой 1 МБ параллельно — двойной трафик). */
 async function refreshTrayInfo(manual = false) {
     const viaTor = supervisor?.isRunning('tor');
     try {
@@ -632,6 +634,9 @@ async function refreshTrayInfo(manual = false) {
     } catch (e) { /* оставим прошлое значение */ }
     if (viaTor) {
         try { trayInfo.exit = await torspeed.exitInfo(); } catch (e) { /* старое */ }
+    }
+    if (trayInfo.speed) {
+        sendToRenderer('net:speed:result', trayInfo.speed);
     }
     if (manual) sendToRenderer('modules:event', { text: 'Данные трея обновлены' });
     tray?.setContextMenu(trayMenu());
