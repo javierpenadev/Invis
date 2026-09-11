@@ -2,12 +2,17 @@
  * Диагностика модулей: DNS-запрос по TCP напрямую в listen-порт dnscrypt,
  * TCP-проба порта. Не зависит от Electron.
  */
-const net = require('net');
+import * as net from 'net';
 
-function probeTcp(port, host = '127.0.0.1', timeout = 2000) {
+export interface DiagCheck {
+    ok: boolean;
+    detail: string;
+}
+
+export function probeTcp(port: number, host = '127.0.0.1', timeout = 2000): Promise<boolean> {
     return new Promise((resolve) => {
         const sock = net.connect({ host, port });
-        const done = (ok) => { try { sock.destroy(); } catch (e) { /* ок */ } resolve(ok); };
+        const done = (ok: boolean) => { try { sock.destroy(); } catch (e) { /* ок */ } resolve(ok); };
         const to = setTimeout(() => done(false), timeout);
         sock.once('connect', () => { clearTimeout(to); done(true); });
         sock.once('error', () => { clearTimeout(to); done(false); });
@@ -15,7 +20,7 @@ function probeTcp(port, host = '127.0.0.1', timeout = 2000) {
 }
 
 /* Минимальный DNS A-запрос по TCP (2-байтовый префикс длины) */
-function dnsQueryTcp(port, domain = 'ya.ru', timeout = 5000) {
+export function dnsQueryTcp(port: number, domain = 'ya.ru', timeout = 5000): Promise<DiagCheck> {
     return new Promise((resolve) => {
         const qname = domain.split('.').map((l) => String.fromCharCode(l.length) + l).join('') + '\x00';
         const q = Buffer.concat([
@@ -25,7 +30,7 @@ function dnsQueryTcp(port, domain = 'ya.ru', timeout = 5000) {
         ]);
         const sock = net.connect({ host: '127.0.0.1', port });
         let buf = Buffer.alloc(0);
-        const finish = (r) => { clearTimeout(to); try { sock.destroy(); } catch (e) { /* ок */ } resolve(r); };
+        const finish = (res: DiagCheck) => { clearTimeout(to); try { sock.destroy(); } catch (e) { /* ок */ } resolve(res); };
         const to = setTimeout(() => finish({ ok: false, detail: 'таймаут' }), timeout);
 
         sock.on('connect', () => {
@@ -33,7 +38,7 @@ function dnsQueryTcp(port, domain = 'ya.ru', timeout = 5000) {
             len.writeUInt16BE(q.length);
             sock.write(Buffer.concat([len, q]));
         });
-        sock.on('data', (d) => {
+        sock.on('data', (d: Buffer) => {
             buf = Buffer.concat([buf, d]);
             if (buf.length < 2) return;
             const need = buf.readUInt16BE(0);
@@ -45,8 +50,6 @@ function dnsQueryTcp(port, domain = 'ya.ru', timeout = 5000) {
             if (rcode === 0 && ancount > 0) finish({ ok: true, detail: `ответ: ${ancount} запис(ей)` });
             else finish({ ok: false, detail: `код ответа ${rcode}` });
         });
-        sock.on('error', (e) => { clearTimeout(to); finish({ ok: false, detail: e.message }); });
+        sock.on('error', (e) => finish({ ok: false, detail: e.message }));
     });
 }
-
-module.exports = { probeTcp, dnsQueryTcp };

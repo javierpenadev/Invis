@@ -5,11 +5,28 @@
  *   байт 0 — протокол (1=DNSCrypt, 2=DoH, 3=DoT, 4=DoQ)
  *   байт 1 — битовая маска: 1=DNSSEC, 2=NOLOG, 4=NOFILTER
  */
-const fs = require('fs');
+import * as fs from 'fs';
+import * as path from 'path';
 
-const PROTO_NAMES = { 1: 'DNSCrypt', 2: 'DoH', 3: 'DoT', 4: 'DoQ' };
+export interface ResolverInfo {
+    name: string;
+    protos: string[];
+    dnssec: boolean;
+    nolog: boolean;
+    nofilter: boolean;
+    description: string;
+}
 
-function decodeStamp(b64) {
+export type ResolversResult = { ok: true; list: ResolverInfo[] } | { ok: false; error: string };
+
+const PROTO_NAMES: Record<number, string> = { 1: 'DNSCrypt', 2: 'DoH', 3: 'DoT', 4: 'DoQ' };
+
+interface Stamp {
+    proto: number;
+    props: number;
+}
+
+function decodeStamp(b64: string): Stamp | null {
     try {
         const buf = Buffer.from(b64, 'base64url');
         if (buf.length < 2) return null;
@@ -19,9 +36,8 @@ function decodeStamp(b64) {
     }
 }
 
-/* Возвращает массив {name, protos:[], dnssec, nolog, nofilter, description} */
-function parseResolvers(mdText) {
-    const out = [];
+export function parseResolvers(mdText: string): ResolverInfo[] {
+    const out: ResolverInfo[] = [];
     const sections = mdText.split(/^## /m).slice(1);
     for (const section of sections) {
         const nl = section.indexOf('\n');
@@ -35,7 +51,7 @@ function parseResolvers(mdText) {
             .join(' ')
             .slice(0, 220);
 
-        const protos = new Set();
+        const protos = new Set<string>();
         let props = 0;
         let haveStamp = false;
         for (const m of body.matchAll(/sdns:\/\/([A-Za-z0-9_-]+)/g)) {
@@ -61,9 +77,9 @@ function parseResolvers(mdText) {
 
 /* Читает кэш из каталога конфигов. Файл появляется после первого успешного
  * запуска dnscrypt-proxy (он обновляет его сам по refresh_delay). */
-function readResolvers(configDir) {
-    const file = require('path').join(configDir, 'public-resolvers.md');
-    let md;
+export function readResolvers(configDir: string): ResolversResult {
+    const file = path.join(configDir, 'public-resolvers.md');
+    let md: string;
     try {
         md = fs.readFileSync(file, 'utf8');
     } catch (e) {
@@ -71,5 +87,3 @@ function readResolvers(configDir) {
     }
     return { ok: true, list: parseResolvers(md) };
 }
-
-module.exports = { parseResolvers, readResolvers };

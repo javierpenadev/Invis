@@ -6,15 +6,24 @@
  *   Invis-Portable-<ver>.exe — портативный
  *   SHA256SUMS.txt           — контрольные суммы (npm run checksums)
  */
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-const crypto = require('crypto');
+import * as fs from 'fs';
+import * as https from 'https';
+import * as crypto from 'crypto';
+import { IncomingMessage } from 'http';
 
-const REPO = 'javierpenadev/Invis';
+export const REPO = 'javierpenadev/Invis';
+
+export interface ReleaseInfo {
+    version: string;
+    tag: string;
+    setupUrl: string | null;
+    portableUrl: string | null;
+    sumsUrl: string | null;
+    htmlUrl: string;
+}
 
 /* 1.2.0 → [1,2,0]; сравнение по сегментам */
-function isNewer(remote, local) {
+export function isNewer(remote: string, local: string): boolean {
     const r = String(remote).split('.').map((n) => parseInt(n, 10) || 0);
     const l = String(local).split('.').map((n) => parseInt(n, 10) || 0);
     for (let i = 0; i < 3; i++) {
@@ -24,30 +33,38 @@ function isNewer(remote, local) {
     return false;
 }
 
-function httpsGet(url, { headers = {}, redirects = 0, onProgress } = {}) {
+interface HttpGetOptions {
+    headers?: Record<string, string>;
+    redirects?: number;
+    onProgress?: (pct: number) => void;
+}
+
+function httpsGet(url: string, { headers = {}, redirects = 0 }: HttpGetOptions = {}): Promise<IncomingMessage> {
     return new Promise((resolve, reject) => {
-        if (redirects > 5) return reject(new Error('слишком много редиректов'));
+        if (redirects > 5) { reject(new Error('слишком много редиректов')); return; }
         https.get(url, { headers: { 'User-Agent': 'Invis-updater', ...headers } }, (res) => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            const code = res.statusCode ?? 0;
+            if (code >= 300 && code < 400 && res.headers.location) {
                 res.resume();
-                return resolve(httpsGet(new URL(res.headers.location, url).href, { headers, redirects: redirects + 1, onProgress }));
+                resolve(httpsGet(new URL(res.headers.location, url).href, { headers, redirects: redirects + 1 }));
+                return;
             }
-            if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+            if (code !== 200) { res.resume(); reject(new Error(`HTTP ${code}`)); return; }
             resolve(res);
         }).on('error', reject);
     });
 }
 
-/* Последний стабильный релиз: {version, tag, setupUrl, portableUrl, sumsUrl} */
-async function latestRelease() {
+/* Последний стабильный релиз */
+export async function latestRelease(): Promise<ReleaseInfo> {
     const res = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
     let data = '';
     for await (const c of res) data += c;
-    const rel = JSON.parse(data);
+    const rel = JSON.parse(data) as { tag_name?: string; assets?: Array<{ name: string; browser_download_url: string }>; html_url?: string };
     if (!rel.tag_name) throw new Error('нет данных о релизе');
-    let setupUrl = null;
-    let portableUrl = null;
-    let sumsUrl = null;
+    let setupUrl: string | null = null;
+    let portableUrl: string | null = null;
+    let sumsUrl: string | null = null;
     for (const a of rel.assets || []) {
         if (/^Invis-Setup-.*\.exe$/.test(a.name)) setupUrl = a.browser_download_url;
         if (/^Invis-Portable-.*\.exe$/.test(a.name)) portableUrl = a.browser_download_url;
@@ -59,12 +76,12 @@ async function latestRelease() {
         setupUrl,
         portableUrl,
         sumsUrl,
-        htmlUrl: rel.html_url,
+        htmlUrl: rel.html_url || `https://github.com/${REPO}/releases`,
     };
 }
 
 /* Текстовый GET (SHA256SUMS.txt и т.п.) */
-async function getText(url) {
+export async function getText(url: string): Promise<string> {
     const res = await httpsGet(url);
     let data = '';
     for await (const c of res) data += c;
@@ -73,19 +90,22 @@ async function getText(url) {
 
 /* Скачивание файла с прогрессом (percent 0–100) и таймаутом неактивности:
  * зависший CDN раньше навсегда оставлял updateState.downloading = true */
-async function download(url, dest, { onProgress, idleTimeoutMs = 30000 } = {}) {
+export async function download(url: string, dest: string, { onProgress, idleTimeoutMs = 30000 }: {
+    onProgress?: (pct: number) => void;
+    idleTimeoutMs?: number;
+} = {}): Promise<string> {
     const res = await httpsGet(url);
     const total = Number(res.headers['content-length']) || 0;
     const out = fs.createWriteStream(dest);
     let done = 0;
     let lastPct = -1;
-    let idle = null;
+    let idle: NodeJS.Timeout | null = null;
     const armIdle = () => {
-        clearTimeout(idle);
+        if (idle) clearTimeout(idle);
         idle = setTimeout(() => res.destroy(new Error(`загрузка остановилась (${idleTimeoutMs / 1000} с без данных)`)), idleTimeoutMs);
     };
     armIdle();
-    res.on('data', (c) => {
+    res.on('data', (c: Buffer) => {
         armIdle();
         done += c.length;
         if (total && onProgress) {
@@ -95,20 +115,20 @@ async function download(url, dest, { onProgress, idleTimeoutMs = 30000 } = {}) {
     });
     try {
         res.pipe(out);
-        await new Promise((resolve, reject) => {
-            out.on('finish', resolve);
+        await new Promise<void>((resolve, reject) => {
+            out.on('finish', () => resolve());
             out.on('error', reject);
             res.on('error', reject);
         });
     } finally {
-        clearTimeout(idle);
+        if (idle) clearTimeout(idle);
     }
     return dest;
 }
 
 /* SHA256SUMS.txt: "<hex>  <name>" → { name: hex } */
-function parseSums(text) {
-    const map = {};
+export function parseSums(text: string): Record<string, string> {
+    const map: Record<string, string> = {};
     for (const line of String(text).split(/\r?\n/)) {
         const m = line.match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/);
         if (m) map[m[2].trim()] = m[1].toLowerCase();
@@ -116,7 +136,7 @@ function parseSums(text) {
     return map;
 }
 
-function sha256File(file) {
+export function sha256File(file: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const h = crypto.createHash('sha256');
         const s = fs.createReadStream(file);
@@ -125,5 +145,3 @@ function sha256File(file) {
         s.on('error', reject);
     });
 }
-
-module.exports = { REPO, isNewer, latestRelease, download, getText, parseSums, sha256File };
