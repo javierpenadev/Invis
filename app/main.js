@@ -387,23 +387,34 @@ function hideI2pdTrayIcon() {
     } catch (e) { netmodeLog(`Не удалось скрыть иконку i2pd: ${e.message}`); }
 }
 
-/* Firewall-правило для доступа к DNS из LAN (best-effort, нужен админ) */
+/* Firewall-правила для доступа к DNS из LAN (best-effort, нужен админ).
+ * Правила узкие (SEC-6): только приватный профиль, только частные подсети,
+ * только процесс dnscrypt и реально настроенный порт. Раньше — все профили,
+ * любой источник, всегда порт 53 (даже когда dnscrypt слушает 9053). */
 function syncLanFirewall(enabled) {
+    const port = dnsApplied ? 53 : PORTS.dnscrypt;
+    const prog = path.join(binDir(), 'dnscrypt', 'win64', 'dnscrypt-proxy.exe');
+    /* Легаси-имена из старых версий тоже подчищаем */
+    const names = ['Invis DNS (UDP 53)', 'Invis DNS (TCP 53)',
+        'Invis DNS (UDP 9053)', 'Invis DNS (TCP 9053)'];
     try {
-        if (enabled) {
-            execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
-                'name=Invis DNS (UDP 53)', 'dir=in', 'action=allow', 'protocol=UDP', 'localport=53'],
-                { windowsHide: true, stdio: 'ignore' });
-            execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
-                'name=Invis DNS (TCP 53)', 'dir=in', 'action=allow', 'protocol=TCP', 'localport=53'],
-                { windowsHide: true, stdio: 'ignore' });
-        } else {
-            execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=Invis DNS (UDP 53)'],
-                { windowsHide: true, stdio: 'ignore' });
-            execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=Invis DNS (TCP 53)'],
+        for (const name of names) {
+            execFileSync('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${name}`],
                 { windowsHide: true, stdio: 'ignore' });
         }
-        netmodeLog(`Firewall LAN DNS: ${enabled ? 'разрешён' : 'правила удалены'}`);
+        if (enabled) {
+            for (const proto of ['UDP', 'TCP']) {
+                execFileSync('netsh', ['advfirewall', 'firewall', 'add', 'rule',
+                    `name=Invis DNS (${proto} ${port})`, 'dir=in', 'action=allow',
+                    `protocol=${proto}`, `localport=${String(port)}`,
+                    'profile=private,domain',
+                    'remoteip=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12',
+                    `program=${prog}`], { windowsHide: true, stdio: 'ignore' });
+            }
+        }
+        netmodeLog(`Firewall LAN DNS (${port}): ${enabled
+            ? 'правила добавлены (private, частные подсети, dnscrypt.exe)'
+            : 'правила удалены'}`);
     } catch (e) {
         netmodeLog(`Firewall LAN DNS: не удалось (${e.message})`);
     }
