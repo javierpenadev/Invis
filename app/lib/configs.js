@@ -73,6 +73,17 @@ function torrc({ dataDir, bridges, pluginDir }) {
             for (const l of clean) lines.push(`Bridge ${l}`);
         }
     }
+    /* Страны выхода: ограничиваем выходные узлы выбранными странами.
+     * StrictNodes 1 — строго выбранные страны, иначе Tor молча уйдёт в другую */
+    if (Array.isArray(bridges && bridges.exitCountries) && bridges.exitCountries.length) {
+        const ccs = bridges.exitCountries
+            .map((c) => String(c).toLowerCase().replace(/[^a-z]/g, ''))
+            .filter((c) => c.length === 2);
+        if (ccs.length) {
+            lines.push(`ExitNodes ${ccs.map((c) => `{${c}}`).join(',')}`);
+            lines.push('StrictNodes 1');
+        }
+    }
     lines.push('');
     return lines.join('\n');
 }
@@ -194,6 +205,7 @@ function buildAll({ configDir, torDataDir, i2pDataDir, geoipDir, i2pdContribDir,
     fs.writeFileSync(path.join(configDir, 'torrc'), torrc({
         dataDir: torDataDir,
         bridges: { use: Boolean(torCfg.useBridges), lines: String(torCfg.bridgesText || '').split(/\r?\n/) },
+        exitCountries: torCfg.exitCountries,
         pluginDir: torPluginDir,
     }));
     fs.writeFileSync(path.join(configDir, 'dnscrypt-proxy.toml'), dnscryptToml(dnscryptListen, {

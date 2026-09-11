@@ -466,6 +466,114 @@
         activate(document.querySelector(`.tab-page[data-page="${saved}"]`) ? saved : 'modules');
     };
 
+    /* ---------- Tor: страны выхода ---------- */
+    /* Флаги-эмодзи не используем: Windows их не рендерит (квадратики) */
+    const COUNTRIES = {
+        US: 'США', DE: 'Германия', NL: 'Нидерланды', FR: 'Франция', GB: 'Британия',
+        SE: 'Швеция', CH: 'Швейцария', CA: 'Канада', RO: 'Румыния', FI: 'Финляндия',
+        AT: 'Австрия', NO: 'Норвегия', PL: 'Польша', CZ: 'Чехия', ES: 'Испания',
+        IT: 'Италия', JP: 'Япония', SG: 'Сингапур', AU: 'Австралия', UA: 'Украина',
+        MD: 'Молдова', LV: 'Латвия', LT: 'Литва', EE: 'Эстония', TR: 'Турция',
+        IS: 'Исландия', HK: 'Гонконг', KR: 'Корея', IN: 'Индия', BR: 'Бразилия',
+        MX: 'Мексика', ZA: 'ЮАР', AE: 'ОАЭ', IL: 'Израиль', GR: 'Греция',
+        PT: 'Португалия', DK: 'Дания', BE: 'Бельгия', IE: 'Ирландия', HU: 'Венгрия',
+        BG: 'Болгария', RS: 'Сербия', SK: 'Словакия', SI: 'Словения', HR: 'Хорватия',
+        RU: 'Россия', GE: 'Грузия', AM: 'Армения', KZ: 'Казахстан', TH: 'Таиланд',
+        VN: 'Вьетнам', ID: 'Индонезия', MY: 'Малайзия', CL: 'Чили', NZ: 'Н. Зеландия',
+        LU: 'Люксембург',
+    };
+    const countryState = { selected: new Set(), data: null, busy: false };
+
+    const countryHint = (cc) => {
+        const d = countryState.data && countryState.data.ok ? countryState.data.countries[cc] : null;
+        if (!d) return '';
+        const speed = d.mbps >= 1000 ? `${(d.mbps / 1000).toFixed(1)} Гбит/с` : `${d.mbps} Мбит/с`;
+        return `${d.count} узл. · ${speed}`;
+    };
+
+    const renderCountries = () => {
+        const box = $('#exitCountries');
+        if (!box) return;
+        /* порядок: сначала страны с выходными узлами (по убыванию скорости) */
+        let codes;
+        if (countryState.data && countryState.data.ok) {
+            const withData = Object.entries(countryState.data.countries)
+                .sort((a, b) => (b[1].mbps - a[1].mbps) || (b[1].count - a[1].count))
+                .map(([cc]) => cc);
+            codes = [...withData, ...Object.keys(COUNTRIES).filter((cc) => !withData.includes(cc))];
+        } else {
+            codes = Object.keys(COUNTRIES);
+        }
+        box.innerHTML = '';
+        for (const cc of codes) {
+            const name = COUNTRIES[cc] || cc;
+            const label = document.createElement('label');
+            label.className = 'check-row';
+            const hint = countryHint(cc);
+            label.innerHTML = `<input type="checkbox" ${countryState.selected.has(cc) ? 'checked' : ''}>`
+                + `<span class="country-code">${cc}</span> ${StringUtils.escape(name)}`
+                + (hint ? ` <span class="hint">${hint}</span>` : '');
+            label.querySelector('input').addEventListener('change', (e) => {
+                e.target.checked ? countryState.selected.add(cc) : countryState.selected.delete(cc);
+                UIBridge.invoke('settings:set', { tor: { exitCountries: [...countryState.selected] } });
+                InvisUI.setStatus('Страны выхода изменены — Tor перезапускается с новым torrc…');
+            });
+            box.appendChild(label);
+        }
+    };
+
+    const loadCountries = async (force = false) => {
+        countryState.busy = true;
+        const r = await UIBridge.invoke('tor:countries', { force });
+        countryState.busy = false;
+        countryState.data = r;
+        if (!r || !r.ok) {
+            const el = $('#exitCountries');
+            if (el) el.innerHTML = `<span class="hint">${(r && r.error) || 'Данные Onionoo недоступны'} — страны всё равно можно выбирать</span>`;
+        }
+        renderCountries();
+    };
+
+    const initTorCountries = async () => {
+        const s = await UIBridge.invoke('settings:get');
+        countryState.selected = new Set(s?.tor?.exitCountries || []);
+        loadCountries(false);
+        $('#countriesRefreshBtn')?.addEventListener('click', () => {
+            InvisUI.setStatus('Обновляю данные о выходных узлах (Onionoo)…');
+            loadCountries(true).then(() => {
+                if (countryState.data && countryState.data.ok) {
+                    const n = Object.keys(countryState.data.countries).length;
+                    InvisUI.setStatus(`Onionoo: страны с выходными узлами — ${n}`);
+                }
+            });
+        });
+        /* Настройки могли поменять вне окна — держим выбор актуальным */
+        UIBridge.on('settings:changed', (s2) => {
+            countryState.selected = new Set(s2?.tor?.exitCountries || []);
+            if (!countryState.busy) renderCountries();
+        });
+    };
+
+    /* ---------- тест скорости через Tor (кнопка в шапке) ---------- */
+    const initSpeedTest = () => {
+        $('#speedBtn')?.addEventListener('click', async () => {
+            InvisUI.setStatus('Тест канала через Tor: задержка, затем скорость (до минуты)…');
+            const btn = $('#speedBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const r = await UIBridge.invoke('tor:speedtest');
+                if (!r || !r.ok) {
+                    InvisUI.setStatus(`Тест не удался: ${(r && r.error) || 'неизвестная ошибка'}`, { error: true });
+                    return;
+                }
+                const where = r.country ? ` (${r.country})` : '';
+                InvisUI.setStatus(`Tor: ↓ ${r.mbps} Мбит/с · пинг ${r.medianMs} мс · выход ${r.ip}${where}`);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    };
+
     /* ---------- Tor: мосты, NEWNYM, диагностика ---------- */
     const syncTorBlock = (s) => {
         const on = Boolean(s?.tor?.useBridges);
@@ -619,6 +727,8 @@
         initQueryLog();
         initUpdate();
         initTor();
+        initTorCountries();
+        initSpeedTest();
         initDiag();
         setStatus('Готов к работе');
         console.log('Invis UI запущен');

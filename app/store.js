@@ -40,6 +40,7 @@ const DEFAULTS = {
         newIpMinutes: 0,               // авто-смена IP (NEWNYM), 0 = выкл
         useBridges: false,             // использовать мосты (обход блокировок)
         bridgesText: '',               // строки мостов, по одной на строку
+        exitCountries: [],             // страны выхода (ISO-коды), пусто = любая
     },
 };
 

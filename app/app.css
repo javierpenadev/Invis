@@ -211,3 +211,16 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 
 /* Inline-иконки (Lucide): выравнивание по базовой линии текста */
 .ico { vertical-align: -2px; }
+
+/* Список стран выхода Tor */
+.country-list {
+    max-height: 190px; overflow-y: auto; border: 1px solid #313147;
+    border-radius: 8px; padding: 8px 10px; margin: 6px 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 2px 14px;
+}
+.country-list .check-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.country-code {
+    display: inline-block; min-width: 22px; padding: 0 4px; border-radius: 4px;
+    background: #2a2a44; color: #a5b4ff; font-size: 11px; text-align: center;
+}

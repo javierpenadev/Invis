@@ -146,7 +146,8 @@ function onReady() {
 
     /* Авто-обновление: первая проверка через 20 с, далее раз в 4 часа */
     if (!process.env.INVIS_NO_UPDATE) {
-        setTimeout(() => checkForUpdates(true), 20000); // при старте — всегда, даже с выключенным автообновлением
+        /* Проверка обновлений при запуске — если включено автообновление */
+        if (settings.autoUpdate) setTimeout(() => checkForUpdates(true), 20000);
         setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
     }
     /* мусор от прошлых обновлений portable-версии */
@@ -692,7 +693,8 @@ function setSetting(patch) {
     /* Изменились параметры Tor — bridges требуют пересборки torrc и рестарта */
     if (patch.tor !== undefined) {
         scheduleNewIp();
-        if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined)
+        if ((patch.tor.useBridges !== undefined || patch.tor.bridgesText !== undefined
+                || patch.tor.exitCountries !== undefined)
                 && supervisor?.isRunning('tor')) {
             supervisor.stop('tor').then(() => supervisor.start('tor'));
         }
@@ -938,6 +940,8 @@ async function startUpdate() {
 /* ---------- IPC: диагностика, Tor NEWNYM, мосты, ярлыки ---------- */
 const { shell } = require('electron');
 const ipinfo = require('./lib/ipinfo');
+const onionoo = require('./lib/onionoo');
+const torspeed = require('./lib/torspeed');
 
 ipcMain.handle('diag:run', async () => {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
@@ -1000,6 +1004,22 @@ ipcMain.on('tor:newip', async () => {
 });
 
 ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(transport || 'obfs4'));
+
+/* ---------- Tor: страны выхода (Onionoo) и тест скорости ---------- */
+ipcMain.handle('tor:countries', async (_e, { force } = {}) =>
+    onionoo.exitCountries(store.baseDir(), { force }));
+
+ipcMain.handle('tor:speedtest', async () => {
+    if (!supervisor?.isRunning('tor')) {
+        return { ok: false, error: 'Сначала запустите Tor' };
+    }
+    try {
+        const r = await torspeed.fullTest();
+        return { ok: r.isTor !== false, ...r };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+});
 
 ipcMain.handle('update:state', () => ({ ...updateState, currentVersion: app.getVersion(), autoUpdate: Boolean(settings.autoUpdate), installSupported: app.isPackaged }));
 ipcMain.on('update:check', () => checkForUpdates(true));
