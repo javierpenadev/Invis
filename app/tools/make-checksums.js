@@ -13,14 +13,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+const version = pkg.version;
 const dir = path.join(__dirname, '..', 'release');
-const patterns = [/^Invis-.*\.exe$/i, /^Invis-.*\.blockmap$/i];
+/* Только артефакты ТЕКУЩЕЙ версии: старые exe прошлых релизов в release/
+ * не должны попадать в SHA256SUMS.txt нового релиза */
+const re = new RegExp(`^Invis-.*-${version.replace(/\./g, '\\.')}\\.(exe|blockmap)$`, 'i');
 
 const files = fs.readdirSync(dir)
-    .filter((f) => patterns.some((p) => p.test(f)))
+    .filter((f) => re.test(f))
     .sort();
 if (!files.length) {
-    console.error(`В ${dir} нет артефактов релиза — сначала npm run dist`);
+    console.error(`В ${dir} нет артефактов версии ${version} — сначала npm run dist`);
     process.exit(1);
 }
 
