@@ -5,6 +5,7 @@
  */
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard } = require('electron');
 const { spawn, execFileSync } = require('child_process');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
@@ -523,13 +524,25 @@ function createWindow() {
         title: TITLE,
         icon: path.join(__dirname, 'assets', 'img', 'icon.ico'),
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            sandbox: false,
+            /* SEC-1: у рендерера нет Node; весь IPC — через preload-мост
+             * с allowlist каналов (preload.js). Любая HTML-инъекция в UI
+             * больше не даёт доступ к файловой системе и процессам. */
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
         },
     });
     win.setMenuBarVisibility(false);
     win.loadFile(path.join(__dirname, 'index.html'));
+
+    /* SEC-1: никаких открытий окон и навигаций из рендерера — только своя страница */
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    const ownUrl = pathToFileURL(path.join(__dirname, 'index.html')).href;
+    win.webContents.on('will-navigate', (e, url) => {
+        if (url === ownUrl || url.startsWith(ownUrl + '#')) return;
+        e.preventDefault();
+    });
 
     win.on('close', (e) => {
         if (!quitting && settings.closeToTray) {

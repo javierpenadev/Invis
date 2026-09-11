@@ -23,6 +23,7 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "store.js",
       "index.html",
       "style.css",
