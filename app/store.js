@@ -39,7 +39,10 @@ const DEFAULTS = {
     tor: {                             // параметры Tor
         newIpMinutes: 0,               // авто-смена IP (NEWNYM), 0 = выкл
         useBridges: false,             // использовать мосты (обход блокировок)
-        bridgesText: '',               // строки мостов, по одной на строку
+        bridgesText: '',               // строки мостов, по одной на строку.
+                                       // Чувствительно (SEC-11): хранится в
+                                       // settings.json ОТКРЫТО — не выкладывай
+                                       // settings.json и не синхронизируй его
         exitCountries: [],             // страны выхода (ISO-коды), пусто = любая
     },
 };
@@ -62,7 +65,9 @@ function storeFile() {
 
 function deepMerge(base, patch) {
     for (const [key, value] of Object.entries(patch || {})) {
-        if (!(key in base)) continue;                      // неизвестные ключи отбрасываем
+        /* hasOwn, а не 'in': 'in' истинен и для __proto__/toString —
+         * рекурсия ушла бы в прототип (SEC-10) */
+        if (!Object.hasOwn(base, key)) continue;            // неизвестные ключи отбрасываем
         if (value && typeof value === 'object' && !Array.isArray(value)
                 && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
             deepMerge(base[key], value);                   // объекты — глубоко

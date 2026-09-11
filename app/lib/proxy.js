@@ -16,17 +16,24 @@ function ps(script, timeout = 15000) {
         { encoding: 'utf8', windowsHide: true, timeout });
 }
 
-/* Уведомить систему об изменении настроек прокси (InternetSetOption 39 + 37) */
+/* Уведомить систему об изменении настроек прокси (InternetSetOption 39 + 37).
+ * Скрипт — в случайном mkdtemp-каталоге (SEC-8): предсказуемое имя в %TEMP%
+ * позволяло тому же пользователю подменить файл между записью и запуском. */
 function refreshWininet(tempPath) {
-    const ps1 = path.join(tempPath, 'invis-proxy-refresh.ps1');
+    const dir = fs.mkdtempSync(path.join(tempPath, 'invis-proxy-'));
+    const ps1 = path.join(dir, 'refresh.ps1');
     fs.writeFileSync(ps1, [
         "Add-Type -Namespace W -Name I -MemberDefinition '[DllImport(\"wininet.dll\", SetLastError=true)] public static extern bool InternetSetOption(IntPtr h, int o, IntPtr b, int l);'",
         '[W.I]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0)',
         '[W.I]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)',
     ].join('\r\n'), 'utf8');
-    execFileSync('powershell',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
-        { windowsHide: true, timeout: 15000, stdio: 'ignore' });
+    try {
+        execFileSync('powershell',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
+            { windowsHide: true, timeout: 15000, stdio: 'ignore' });
+    } finally {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* не критично */ }
+    }
     return true;
 }
 

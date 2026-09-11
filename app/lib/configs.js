@@ -20,6 +20,13 @@ const PORTS = {
 
 const fwd = (p) => p.split(path.sep).join('/');
 
+/* Атомарная запись (SEC-9): демон при рестарте мог прочитать полусконфиг */
+function writeAtomic(file, data) {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, data, 'utf8');
+    fs.renameSync(tmp, file);
+}
+
 /* Имена pluggable-транспорта → исполняемые файлы в bin/tor/.../pluggable_transports */
 const BRIDGE_PLUGINS = {
     obfs4: 'lyrebird.exe',
@@ -64,8 +71,10 @@ function torrc({ dataDir, bridges, pluginDir }) {
         const clean = bridges.lines
             .map((l) => l.trim().replace(/^Bridge\s+/, ''))
             .filter((l) => l && !l.startsWith('#'));
-        if (clean.length) {
-            const transport = clean[0].split(/\s+/)[0];
+        const transport = clean.length ? clean[0].split(/\s+/)[0] : '';
+        /* Имя транспорта попадает в путь плагина — только строгие символы
+         * (SEC-12): '..' и прочее отсекаем, блок мостов просто не пишем. */
+        if (clean.length && /^[A-Za-z0-9_-]+$/.test(transport)) {
             const plugin = BRIDGE_PLUGINS[transport] || `${transport}-client.exe`;
             const pluginPath = fwd(torPath(path.join(pluginDir || '', plugin)));
             lines.push('UseBridges 1');
@@ -202,7 +211,7 @@ function buildAll({ configDir, torDataDir, i2pDataDir, geoipDir, i2pdContribDir,
         const dst = path.join(torDataDir, f);
         if (geoipDir && !fs.existsSync(dst)) fs.copyFileSync(path.join(geoipDir, f), dst);
     }
-    fs.writeFileSync(path.join(configDir, 'torrc'), torrc({
+    writeAtomic(path.join(configDir, 'torrc'), torrc({
         dataDir: torDataDir,
         bridges: {
             use: Boolean(torCfg.useBridges),
@@ -211,14 +220,15 @@ function buildAll({ configDir, torDataDir, i2pDataDir, geoipDir, i2pdContribDir,
         },
         pluginDir: torPluginDir,
     }));
-    fs.writeFileSync(path.join(configDir, 'dnscrypt-proxy.toml'), dnscryptToml(dnscryptListen, {
-        ...dnscryptCfg,
-        hasBlockedNames: Boolean(blocklists.composeBlockedNames(configDir, dnscryptCfg)),
-    }));
+    /* composeBlockedNames читает мегабайтные пресеты — один раз, не дважды */
     const blocked = blocklists.composeBlockedNames(configDir, dnscryptCfg);
-    if (blocked) fs.writeFileSync(path.join(configDir, 'blocked-names.txt'), blocked);
+    writeAtomic(path.join(configDir, 'dnscrypt-proxy.toml'), dnscryptToml(dnscryptListen, {
+        ...dnscryptCfg,
+        hasBlockedNames: Boolean(blocked),
+    }));
+    if (blocked) writeAtomic(path.join(configDir, 'blocked-names.txt'), blocked);
     else try { fs.unlinkSync(path.join(configDir, 'blocked-names.txt')); } catch (e) { /* не было */ }
-    fs.writeFileSync(path.join(configDir, 'i2pd.conf'), i2pdConf());
+    writeAtomic(path.join(configDir, 'i2pd.conf'), i2pdConf());
     return {
         torrc: path.join(configDir, 'torrc'),
         dnscryptToml: path.join(configDir, 'dnscrypt-proxy.toml'),
