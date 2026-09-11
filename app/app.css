@@ -1,11 +1,13 @@
 /* Виджеты Invis: модули, настройки, прогресс. Базовая тема — в style.css. */
 
 /* ---------- контент ---------- */
-.content { gap: 12px; padding: 14px; }
-.fields-section { padding: 14px 16px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* компактно: центральная колонка на широких окнах, fluid на узких (мин. 320px) */
+.content { gap: 10px; padding: 12px 14px 84px; }
+.content > .brand-row, .content > .tab-page { width: 100%; max-width: 860px; margin-left: auto; margin-right: auto; }
+.fields-section { padding: 12px 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; border-radius: 14px; }
 
 /* ---------- вкладки ---------- */
-.tab-page { display: none; flex-direction: column; gap: 12px; min-height: 0; }
+.tab-page { display: none; flex-direction: column; gap: 10px; min-height: 0; }
 .tab-page.active { display: flex; flex: 1; min-height: 0; }
 
 /* утилиты */
@@ -28,10 +30,10 @@ input[type="checkbox"]:checked::after {
     width: 25%; height: 55%; border: solid #fff; border-width: 0 2px 2px 0;
     transform: rotate(45deg);
 }
-.fields-section h3 { margin: 0 0 12px 0; font-size: 14px; }
+.fields-section h3 { margin: 0 0 10px 0; font-size: 14px; }
 
 /* ---------- бренд-строка с анимированным логотипом ---------- */
-.brand-row { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; padding: 0 4px; }
+.brand-row { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 0 4px; flex-wrap: wrap; }
 #brandLogo {
     width: 46px; height: 46px; flex: 0 0 auto; display: block;
     transition: transform .3s cubic-bezier(.2,.8,.3,1.2), filter .3s ease;
@@ -62,9 +64,9 @@ input[type="checkbox"]:checked::after {
 
 /* ---------- строки модулей ---------- */
 .module-row {
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 10px;
     background: #1e1e2f; border: 1px solid #3f3f5a; border-radius: 14px;
-    padding: 10px 14px; margin-bottom: 8px; color: #fff;
+    padding: 9px 12px; margin-bottom: 6px; color: #fff;
     transition: border-color .18s ease;
 }
 .module-row:last-child { margin-bottom: 0; }
@@ -86,13 +88,13 @@ input[type="checkbox"]:checked::after {
 .module-toggle { flex: 0 0 auto; }
 
 /* ---------- настройки ---------- */
-.settings-subtitle { font-size: 12px; color: #9a9ab0; text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 2px; }
-.check-row { display: flex; align-items: center; gap: 10px; font-size: 15px; color: #d7d7ea; margin: 8px 0; cursor: pointer; }
+.settings-subtitle { font-size: 12px; color: #9a9ab0; text-transform: uppercase; letter-spacing: .4px; margin: 12px 0 2px; }
+.check-row { display: flex; align-items: center; gap: 10px; font-size: 15px; color: #d7d7ea; margin: 6px 0; cursor: pointer; flex-wrap: wrap; }
 .check-row input { width: 18px; height: 18px; accent-color: #4f4fef; flex: 0 0 auto; }
 .btn-row .check-row { margin: 0; }
 
 /* ---------- кнопки ---------- */
-.btn-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
 .btn-row:last-child { margin-bottom: 0; }
 
 .mini-btn {
@@ -227,7 +229,7 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 
 
 /* ---------- Быстрый выбор страны выхода Tor (главная) ---------- */
-.quick-countries { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 14px; }
+.quick-countries { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
 .qc-label { font-size: 12px; color: #9aa0c3; margin-right: 2px; }
 .qc-pill {
     padding: 4px 12px; border-radius: 999px; border: 1px solid #35355a;
@@ -248,4 +250,30 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 
 /* IP выхода Tor на главной */
-.exit-info { display: flex; align-items: center; gap: 10px; margin: -6px 0 14px; }
+.exit-info { display: flex; align-items: center; gap: 10px; margin: -4px 0 10px; flex-wrap: wrap; }
+
+/* ---------- адаптив: узкие окна (минимум 320px — экран iPhone SE) ---------- */
+@media (max-width: 620px) {
+    .content { padding: 10px 10px 84px; }
+    .content > .brand-row, .content > .tab-page { max-width: none; }
+    .fields-section { padding: 10px 12px; border-radius: 12px; }
+    #brandLogo { width: 38px; height: 38px; }
+    .brand-name { font-size: 15px; }
+    .check-row { font-size: 14px; }
+    .btn-row { gap: 8px; }
+    .country-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+    .tabbar { padding: 6px 8px; gap: 4px; }
+    .tab-btn { padding: 6px 10px; font-size: 12px; }
+    .control-bar { padding: 10px 12px; gap: 10px; }
+    /* чипы прячем: статус дублируется точками модулей и треем */
+    .control-bar__slot:first-of-type { display: none; }
+    .action-btn { padding: 8px 12px; font-size: 12.5px; }
+    .update-badge { margin-left: 8px; }
+}
+@media (max-width: 400px) {
+    .titlebar-speed { display: none; }  /* скорость остаётся в трее */
+    .action-btn { padding: 7px 10px; font-size: 12px; }
+    .mini-btn { padding: 6px 12px; font-size: 12px; }
+}

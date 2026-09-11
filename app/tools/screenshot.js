@@ -1,8 +1,9 @@
 /*
  * Скриншот окна приложения без запуска демонов (для визуальной проверки UI).
- * Запуск: node tools/screenshot.js [файл.png] [мс] [селектор-для-ховера]
+ * Запуск: node tools/screenshot.js [файл.png] [мс] [селектор-для-ховера] [ШxВ]
  * Селектор (аргумент 3) — синтетический курсор наводится на элемент перед
  * кадром: проверка hover-эффектов (кольцо кастомного курсора).
+ * ШxВ (аргумент 4, напр. "320x568") — размер окна: проверка адаптива.
  */
 const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -10,6 +11,9 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const OUT = process.argv[2] || path.join(__dirname, 'screenshot.png');
 const WAIT = Number(process.argv[3]) || 2500;
 const HOVER = process.argv[4] || null;
+const SIZE = /^(\d+)x(\d+)$/.exec(process.argv[5] || '');
+const WIN_W = SIZE ? Number(SIZE[1]) : 820;
+const WIN_H = SIZE ? Number(SIZE[2]) : 560;
 
 ipcMain.handle('settings:get', () => ({
     launchWithWindows: false,
@@ -82,7 +86,8 @@ ipcMain.handle('tor:countries', () => ({
 
 app.whenReady().then(async () => {
     const win = new BrowserWindow({
-        width: 820, height: 560, frame: false, show: true,
+        width: WIN_W, height: WIN_H, frame: false, show: true,
+        minWidth: 320, minHeight: 568,
         backgroundColor: '#1e1e2f',
         /* та же модель изоляции, что и в приложении (SEC-1): UI через preload-мост */
         webPreferences: {

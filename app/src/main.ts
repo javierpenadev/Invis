@@ -205,8 +205,18 @@ function onReady(): void {
     const sup = supervisor;
     if (!process.env.INVIS_NO_AUTOSTART && sup) {
         const started = sup.startEnabled(settings.autostart);
-        /* Системный прокси живёт вместе с Tor: если галка включена, Tor нужен всегда */
-        if (settings.systemProxy && !sup.isRunning('tor')) sup.start('tor');
+        /* Системный прокси живёт вместе с Tor: если галка включена, Tor нужен
+         * всегда — иначе прокси смотрит в мёртвый порт. Если автозапуск Tor
+         * выключен, запуск выглядит неожиданно — объясняем прямо. */
+        if (settings.systemProxy && !sup.isRunning('tor')) {
+            sup.start('tor');
+            if (!settings.autostart.tor) {
+                netmodeLog('Tor запущен автоматически: активен системный прокси (автозапуск Tor выключен)');
+                sendToRenderer('modules:event', {
+                    text: 'Tor запущен автоматически: включён «Системный прокси», без него прокси не работает (автозапуск Tor выключен в настройках)',
+                });
+            }
+        }
         if (started.length) console.log(`[Invis] Автозапуск модулей: ${started.join(', ')}`);
     }
 
@@ -599,10 +609,10 @@ function stopAllModules(): Promise<void> {
 /* ---------- окно ---------- */
 function createWindow(): void {
     win = new BrowserWindow({
-        width: 820,
-        height: 560,
-        minWidth: 660,
-        minHeight: 440,
+        width: 760,
+        height: 600,
+        minWidth: 320,      // экран iPhone SE (320×568) — нижняя граница адаптива
+        minHeight: 568,
         frame: false,
         backgroundColor: '#1e1e2f',
         title: TITLE,
