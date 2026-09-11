@@ -66,9 +66,11 @@ async function fullTest() {
 
 module.exports = { fullTest };
 
-/* IP/город/страна выхода через Tor (ip-api.com) + медианный пинг (3 замера) */
+/* IP/город/страна выхода через Tor + медианный пинг (3 замера).
+ * HTTPS обязателен (SEC-7): exit-узел мог бы подменять http-ответ
+ * и подсовывать ложную «текущую страну» — подрыв собственного индикатора. */
 function exitInfo() {
-    const URL_ = 'http://ip-api.com/json/?fields=status,message,country,countryCode,city,query';
+    const URL_ = 'https://free.freeipapi.com/api/json';
     const curlOut = (args, timeoutMs) => new Promise((resolve, reject) => {
         const p = spawn(CURL, ['-s', '--socks5-hostname', '127.0.0.1:9050',
             '-m', String(Math.ceil(timeoutMs / 1000)), ...args],
@@ -84,17 +86,24 @@ function exitInfo() {
     return (async () => {
         const raw = await curlOut([URL_], 15000);
         let data;
-        try { data = JSON.parse(raw); } catch (e) { throw new Error('нечитаемый ответ ip-api'); }
-        if (data.status !== 'success') throw new Error(data.message || 'ip-api: отказ');
+        try { data = JSON.parse(raw); } catch (e) { throw new Error('нечитаемый ответ geoip'); }
+        if (!data.ipAddress) throw new Error('geoip: нет IP в ответе');
         const times = [];
         for (let i = 0; i < 3; i++) {
-            const t = await curlOut(['-o', 'NUL', '-w', '%{time_starttransfer}', 'http://ip-api.com/json/'], 15000);
+            const t = await curlOut(['-o', 'NUL', '-w', '%{time_starttransfer}', URL_], 15000);
             const v = parseFloat(t);
             if (isFinite(v)) times.push(v);
         }
         times.sort((a, b) => a - b);
         const pingMs = times.length ? Math.round(times[Math.floor(times.length / 2)] * 1000) : null;
-        return { ok: true, ip: data.query, city: data.city || '', country: data.country || '', cc: (data.countryCode || '').toUpperCase(), pingMs };
+        return {
+            ok: true,
+            ip: data.ipAddress,
+            city: data.cityName || '',
+            country: data.countryName || '',
+            cc: (data.countryCode || '').toUpperCase(),
+            pingMs,
+        };
     })();
 }
 
