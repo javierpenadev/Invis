@@ -3,7 +3,7 @@
 Дата аудита: 2026-09-11 · База: v1.9.4 (HEAD `67868b5`, ветка `main`, чистое дерево)
 Объём: ~4200 LOC JS, 25 файлов (main 1115, renderer 930+271+66, lib 14 модулей, 5 tools), 0 runtime-зависимостей, Electron 44, CJS.
 
-> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены SEC-1..SEC-4 (вариант Б), BUG-1..BUG-13 и P2 «комментарий-сирота»; частично SEC-8 (dns-restore и update-скрипты уже в mkdtemp, остался proxy-refresh). Решение по обновлятору: вариант Б. Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
+> **Прогресс v1.9.5 (11.09.2026, не released):** выполнены ВЕСЬ блок безопасности SEC-1..SEC-13, BUG-1..BUG-13 и P2 «комментарий-сирота»; SEC-8 полностью (все временные скрипты в mkdtemp). Решение по обновлятору: вариант Б. fetch-bins: версии демонов запинены SHA-256; IP-инфо выхода переведён на HTTPS (free.freeipapi.com). Новое правило релиза: к артефактам прикладывать `SHA256SUMS.txt` (`npm run checksums`) — без него авто-установка обновления блокируется.
 
 Пути: `main.js` = `app/main.js`, `lib/*` = `app/lib/*`, `js/*` = `app/js/*` (если не указано иное).
 
@@ -67,18 +67,18 @@ Kill switch (тасклист 3.3), просмотрщик логов демон
 ### P1 — высокие
 
 - [x] **SEC-4. Обновлятор исполняет непроверенный exe.** lib/updater.js:39-81 (URL из GitHub API, скачивание без хэша), main.js:922-974 (тихая установка через `invis-update.cmd`/`.vbs` с предсказуемыми именами в %TEMP%). ✅ Сделано, вариант Б: тихая установка только после сверки SHA-256 с `SHA256SUMS.txt` релиза (нет sums — установка блокируется, показывается ссылка на страницу релизов); temp-скрипты в mkdtemp-каталоге; `npm run checksums` генерирует суммы для публикации.
-- [ ] **SEC-5. fetch-bins без проверки хэшей/подписей (supply chain).** tools/fetch-bins.js:16-38,57-75 — только HTTPS + проверка существования exe; тасклист 1.1 обещал «фиксацию версий и хэшей». Все три проекта публикуют SHA256SUMS/minisign — добавить проверку, валидировать bin/ перед упаковкой.
-- [ ] **SEC-6. «Доступ из LAN» = открытый резолвер + слишком широкие firewall-правила.** configs.js:100-104 (бинд 0.0.0.0/[::]), main.js:348-367 (правила для UDP/TCP 53 на все профили без remoteip/program; и вообще порт 53 открыт даже когда dnscrypt слушает 9053). Фикс: `profile=private,domain`, `remoteip=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12`, `program=<dnscrypt.exe>`, открывать реально настроенный порт, слушать LAN-IP вместо 0.0.0.0.
-- [ ] **SEC-7. IP выхода по http://ip-api.com** (lib/torspeed.js:71,91) — вредоносный exit может подменить «текущую страну/IP» — подрыв собственного индикатора приватности. Перейти на HTTPS (check.torproject.org/api/ip + https-geoip) или явно пометить как декоративные данные.
+- [x] **SEC-5. fetch-bins без проверки хэшей/подписей (supply chain).** tools/fetch-bins.js:16-38,57-75 — только HTTPS + проверка существования exe; тасклист 1.1 обещал «фиксацию версий и хэшей». Все три проекта публикуют SHA256SUMS/minisign — добавить проверку, валидировать bin/ перед упаковкой.
+- [x] **SEC-6. «Доступ из LAN» = открытый резолвер + слишком широкие firewall-правила.** configs.js:100-104 (бинд 0.0.0.0/[::]), main.js:348-367 (правила для UDP/TCP 53 на все профили без remoteip/program; и вообще порт 53 открыт даже когда dnscrypt слушает 9053). Фикс: `profile=private,domain`, `remoteip=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12`, `program=<dnscrypt.exe>`, открывать реально настроенный порт, слушать LAN-IP вместо 0.0.0.0.
+- [x] **SEC-7. IP выхода по http://ip-api.com** (lib/torspeed.js:71,91) — вредоносный exit может подменить «текущую страну/IP» — подрыв собственного индикатора приватности. Перейти на HTTPS (check.torproject.org/api/ip + https-geoip) или явно пометить как декоративные данные.
 
 ### P2 — средние
 
-- [ ] **SEC-8. Предсказуемые скрипты в %TEMP% с `-ExecutionPolicy Bypass`.** lib/proxy.js:20-31 (`invis-proxy-refresh.ps1`), main.js:261-267 (elevated), main.js:963-970 (cmd/vbs) — TOCTOU подмены тем же юзером. Фикс: `fs.mkdtemp`/случайные имена, удалять сразу после использования. 🔶 Частично: dns-restore и update cmd/vbs уже в mkdtemp (SEC-2/SEC-4), остался `invis-proxy-refresh.ps1`.
-- [ ] **SEC-9. Неатомарная запись torrc/toml/i2pd.conf** (configs.js:205-221) — рестарт демона может прочитать полусконфиг. tmp+rename как в store.js:89-91.
-- [ ] **SEC-10. `deepMerge` — форма прототипного загрязнения.** store.js:63-74: `key in base` истинно для `__proto__`; сейчас спасает строгая проверка типов, но это минус один рефакторинг до дыры. `Object.hasOwn(base, key)`.
-- [ ] **SEC-11. `tor.bridgesText` (мосты — чувствительная инфа о цензурном обходе) в открытом settings.json**; в portable-режиме — рядом с exe. Минимум — задокументировать; в идеале — DPAPI для bridgesText.
-- [ ] **SEC-12. Path traversal в транспорт-плагинах torrc (ограниченный).** configs.js:68-72: транспорт из пользовательского текста мостов попадает в `<transport>-client.exe`; валидировать `^[a-z0-9]+$`.
-- [ ] **SEC-13. `modules:start/stop` без валидации имени.** main.js:820-827 — `stop('bogus')` кидает на daemons.js:204 (`st.proc` от undefined) — крах main из рендерера. Валидировать по `specs` как в `modules:toggle` (main.js:810).
+- [x] **SEC-8. Предсказуемые скрипты в %TEMP% с `-ExecutionPolicy Bypass`.** lib/proxy.js:20-31 (`invis-proxy-refresh.ps1`), main.js:261-267 (elevated), main.js:963-970 (cmd/vbs) — TOCTOU подмены тем же юзером. Фикс: `fs.mkdtemp`/случайные имена, удалять сразу после использования. 🔶 Частично: dns-restore и update cmd/vbs уже в mkdtemp (SEC-2/SEC-4), остался `invis-proxy-refresh.ps1`.
+- [x] **SEC-9. Неатомарная запись torrc/toml/i2pd.conf** (configs.js:205-221) — рестарт демона может прочитать полусконфиг. tmp+rename как в store.js:89-91.
+- [x] **SEC-10. `deepMerge` — форма прототипного загрязнения.** store.js:63-74: `key in base` истинно для `__proto__`; сейчас спасает строгая проверка типов, но это минус один рефакторинг до дыры. `Object.hasOwn(base, key)`.
+- [x] **SEC-11. `tor.bridgesText` (мосты — чувствительная инфа о цензурном обходе) в открытом settings.json**; в portable-режиме — рядом с exe. Минимум — задокументировать; в идеале — DPAPI для bridgesText.
+- [x] **SEC-12. Path traversal в транспорт-плагинах torrc (ограниченный).** configs.js:68-72: транспорт из пользовательского текста мостов попадает в `<transport>-client.exe`; валидировать `^[a-z0-9]+$`.
+- [x] **SEC-13. `modules:start/stop` без валидации имени.** main.js:820-827 — `stop('bogus')` кидает на daemons.js:204 (`st.proc` от undefined) — крах main из рендерера. Валидировать по `specs` как в `modules:toggle` (main.js:810).
 
 ### Сделано правильно (не ломать при миграции)
 
@@ -104,7 +104,7 @@ CSP `default-src 'self'` (index.html:5); Tor CookieAuthentication/ClientOnly/NoE
 - [x] **BUG-9. Скачивание обновления без таймаута.** lib/updater.js:61-80 — зависший CDN навсегда оставляет `updateState.downloading=true` и блокирует повторные установки (main.js:909). Таймаут неактивности + сброс флага.
 - [x] **BUG-10. Двойная проверка обновлений при включении autoUpdate.** js/app.js:156 шлёт `update:check`, main.js:720 делает то же внутри setSetting. Убрать одну.
 - [x] **BUG-11. Задвоенный rebuild трей-меню.** main.js:119-120 — `tray?.setContextMenu(trayMenu())` дважды подряд (copy-paste).
-- [ ] **BUG-12. `npm run make-icons` сломан на чистом клоне.** tools/make-icons.js:15-16 требуют `sharp`/`png-to-ico`, которых нет в package.json. Объявить devDeps или пометить скрипт как опциональный.
+- [x] **BUG-12. `npm run make-icons` сломан на чистом клоне.** tools/make-icons.js:15-16 требуют `sharp`/`png-to-ico`, которых нет в package.json. Объявить devDeps или пометить скрипт как опциональный.
 - [x] **BUG-13. tools/screenshot.js: стабы отстали от схемы.** Нет стаба `tor:countries` (app.js:527 вызовет unhandled rejection, пустая страна на всех скриншотах), в стабе настроек нет `tor`-секции и `dnscrypt.presets`/`blockBrowserDoh`. Переписать на общий тип Settings (см. TS-фазу) — исчезнет как класс.
 
 ### P2 — мелочи и мусор
