@@ -183,13 +183,13 @@ class DaemonSupervisor {
         const spec = this.specs[name];
         const st = this.state[name];
         if (spec.readiness === 'bootstrap') {
-            const m = line.match(/Bootstrapped (d+)%/i);
+            const m = line.match(/Bootstrapped (\d+)%/i);
             if (m) {
                 const pct = Number(m[1]);
                 if (pct >= 100 && st.state === 'busy') this._set(name, 'on', 'работает');
                 else if (st.state === 'busy') this._set(name, 'busy', `${pct}%`);
             }
-            if (/^[err]/i.test(line) && st.state === 'busy') this._set(name, 'error', line.slice(0, 120));
+            if (/^\[err\]/i.test(line) && st.state === 'busy') this._set(name, 'error', line.slice(0, 120));
         } else if (name === 'dnscrypt') {
             if (/Now listening to/i.test(line) && st.state === 'busy') {
                 probePort(spec.probePort, 1500).then((ok) => {
