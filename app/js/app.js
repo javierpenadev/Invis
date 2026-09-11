@@ -648,6 +648,27 @@
         else { const el = $('#vpngateList'); if (el) el.innerHTML = '<span class="hint">VPNGate недоступен: ' + StringUtils.escape((r && r.error) || '') + '. Можно импортировать свой .ovpn.</span>'; }
     };
 
+    /* ---------- IP выхода Tor: страна, город, пинг ---------- */
+    const initExitInfo = () => {
+        const run = async () => {
+            const el = $('#exitInfoText');
+            if (!el) return;
+            el.textContent = 'проверяю…';
+            try {
+                const r = await UIBridge.invoke('tor:exitinfo');
+                if (!r.ok) throw new Error(r.error || 'недоступно');
+                el.innerHTML = '<span class="country-code">' + StringUtils.escape(r.cc || '??') + '</span> '
+                    + StringUtils.escape([r.city, r.country].filter(Boolean).join(', ') || '—')
+                    + ' · ' + StringUtils.escape(r.ip || '')
+                    + ' · <b>' + (r.pingMs == null ? '—' : (r.pingMs >= 1000 ? (r.pingMs/1000).toFixed(1) + ' с' : r.pingMs + ' мс')) + '</b>';
+            } catch (e) {
+                el.textContent = 'Недоступно: ' + (e.message || e);
+            }
+        };
+        $('#exitInfoBtn')?.addEventListener('click', run);
+        run();
+    };
+
     const initOpenvpn = async () => {
         const det = await UIBridge.invoke('openvpn:detect');
         const el = $('#ovpnDetect');
@@ -672,10 +693,7 @@
     const initCopyProxy = () => {
         $('#copyProxyBtn')?.addEventListener('click', () => {
             const line = 'socks5://127.0.0.1:9050';
-            try {
-                require('electron').clipboard.writeText(line);
-                InvisUI.setStatus('Скопировано: ' + line);
-            } catch (e) { InvisUI.setStatus(line); }
+            UIBridge.send('proxy:copy');
         });
     };
 
@@ -834,6 +852,7 @@
         initTor();
         initTorCountries();
         initSpeedTest();
+        initExitInfo();
         initCopyProxy();
         initDiag();
         setStatus('Готов к работе');

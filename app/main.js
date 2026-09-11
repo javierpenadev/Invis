@@ -3,7 +3,7 @@
  * Окно маленькое, закрывается в трей; настройки — JSON (store.js).
  * Точки расширения помечены «Точка расширения:» (демоны, IPC-каналы и т.п.).
  */
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, clipboard } = require('electron');
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -1010,9 +1010,20 @@ ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(tr
 ipcMain.handle('tor:countries', async (_e, { force } = {}) =>
     onionoo.exitCountries(store.baseDir(), { force }));
 
+ipcMain.on('proxy:copy', () => {
+    clipboard.writeText('socks5://127.0.0.1:9050');
+    sendToRenderer('modules:event', { text: 'Скопировано: socks5://127.0.0.1:9050' });
+});
+
 ipcMain.handle('net:speed', async (_e, { viaTor } = {}) => {
     try { return await netspeed.measure({ viaTor: Boolean(viaTor) }); }
     catch (e) { throw new Error(e.message); }
+});
+
+ipcMain.handle('tor:exitinfo', async () => {
+    if (!supervisor?.isRunning('tor')) return { ok: false, error: 'Tor не запущен' };
+    try { return await torspeed.exitInfo(); }
+    catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('tor:speedtest', async () => {

@@ -65,3 +65,37 @@ async function fullTest() {
 }
 
 module.exports = { fullTest };
+
+/* IP/город/страна выхода через Tor (ip-api.com) + медианный пинг (3 замера) */
+function exitInfo() {
+    const URL_ = 'http://ip-api.com/json/?fields=status,message,country,countryCode,city,query';
+    const curlOut = (args, timeoutMs) => new Promise((resolve, reject) => {
+        const p = spawn(CURL, ['-s', '--socks5-hostname', '127.0.0.1:9050',
+            '-m', String(Math.ceil(timeoutMs / 1000)), ...args],
+        { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        let out = '';
+        p.stdout.on('data', (c) => { out += c; });
+        p.on('error', reject);
+        p.on('close', (code) => {
+            if (code !== 0) return reject(new Error('Tor не отвечает (curl код ' + code + ')'));
+            resolve(out);
+        });
+    });
+    return (async () => {
+        const raw = await curlOut([URL_], 15000);
+        let data;
+        try { data = JSON.parse(raw); } catch (e) { throw new Error('нечитаемый ответ ip-api'); }
+        if (data.status !== 'success') throw new Error(data.message || 'ip-api: отказ');
+        const times = [];
+        for (let i = 0; i < 3; i++) {
+            const t = await curlOut(['-o', 'NUL', '-w', '%{time_starttransfer}', 'http://ip-api.com/json/'], 15000);
+            const v = parseFloat(t);
+            if (isFinite(v)) times.push(v);
+        }
+        times.sort((a, b) => a - b);
+        const pingMs = times.length ? Math.round(times[Math.floor(times.length / 2)] * 1000) : null;
+        return { ok: true, ip: data.query, city: data.city || '', country: data.country || '', cc: (data.countryCode || '').toUpperCase(), pingMs };
+    })();
+}
+
+module.exports = { fullTest, exitInfo };

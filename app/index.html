@@ -74,11 +74,13 @@
             <div class="quick-countries" id="quickCountries">
                 <span class="qc-label">Выход Tor:</span>
             </div>
+            <div class="exit-info" id="exitInfo">
+                <span id="exitInfoText" class="hint">Запусти Tor — и здесь появится IP выхода</span>
+                <button class="mini-btn ghost" id="exitInfoBtn" data-cursor-text="s">Проверить</button>
+            </div>
 
             <div class="btn-row" style="margin:0 0 10px">
                 <button class="mini-btn" id="diagBtn" data-cursor-text="go"><svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Проверить</button>
-                <button class="mini-btn ghost" id="i2pConsoleBtn" data-cursor-text="^">Консоль I2P</button>
-                <button class="mini-btn ghost" id="logsFolderBtn" data-cursor-text="=">Папка логов</button>
             </div>
             <div class="log-view is-hidden" id="diagBox" style="height:130px"></div>
             <div class="hint" style="margin-top:8px">
@@ -221,6 +223,10 @@
         <section class="fields-section">
             <h3>О программе</h3>
             <div class="about-text" id="aboutText">Загрузка…</div>
+            <div class="btn-row" style="margin-top:12px">
+                <button class="mini-btn ghost" id="i2pConsoleBtn" data-cursor-text="^">Консоль I2P</button>
+                <button class="mini-btn ghost" id="logsFolderBtn" data-cursor-text="=">Папка логов</button>
+            </div>
         </section>
         </div>
 
