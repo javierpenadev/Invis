@@ -40,6 +40,7 @@ let settings: Settings = store.load();
 let supervisor: DaemonSupervisor | null = null;
 let configDirGlobal: string | null = null;
 let dnsApplied = false;        // системный DNS направлен на 127.0.0.1
+let dnsAppliedAdapters: string[] = []; // адаптеры, реально перехваченные сейчас
 let newIpTimer: NodeJS.Timeout | null = null;         // авто-смена IP Tor
 let cleanupDone = false;       // очистка перед выходом выполнена
 const startupWarnings: string[] = [];   // предупреждения для UI после создания окна
@@ -229,6 +230,26 @@ function onReady(): void {
             if (refreshedAny) rebuildConfigsAndRestartDnscrypt();
         }, 5000);
     }
+
+    /* Защита от утечки (дурак №2): перехват DNS нацелен на адаптеры, существовавшие
+     * на момент включения. Подключился новый Wi-Fi / USB-модем — направляем и его
+     * на 127.0.0.1, а исходные адреса добавляем в бэкап для восстановления. */
+    setInterval(() => {
+        if (!dnsApplied || !netmode.isElevated()) return;
+        try {
+            const fresh = netmode.getUpPhysicalAdapters().filter((a) => !dnsAppliedAdapters.includes(a));
+            if (!fresh.length) return;
+            const backup = netmode.readBackup(dnsBackupFile()) || [];
+            for (const alias of fresh) {
+                backup.push({ alias, addresses: netmode.getDnsServers(alias).filter(netmode.isValidIp) });
+                netmode.setDnsLoopback(alias);
+                dnsAppliedAdapters.push(alias);
+                netmodeLog(`Новый адаптер «${alias}» — DNS направлен на 127.0.0.1`);
+                sendToRenderer('modules:event', { text: `Новый адаптер «${alias}» — DNS также направлен на Invis` });
+            }
+            netmode.writeBackup(dnsBackupFile(), backup);
+        } catch (e) { /* фон: попробуем в следующий раз */ }
+    }, 60000);
 }
 
 /* Каталог бинарников: в сборке — resources/bin, в dev — <проект>/bin */
@@ -269,6 +290,7 @@ function applySystemDns(): { ok: boolean; error?: string } {
         + JSON.stringify(backup));
     for (const a of adapters) netmode.setDnsLoopback(a);
     dnsApplied = true;
+    dnsAppliedAdapters = adapters;
     return { ok: true };
 }
 
@@ -282,6 +304,7 @@ function restoreSystemDns(): void {
             netmodeLog('dns-backup.json не прошёл валидацию — удалён без восстановления');
         }
         dnsApplied = false;
+        dnsAppliedAdapters = [];
         return;
     }
     for (const { alias, addresses } of backup) {
@@ -299,6 +322,7 @@ function restoreSystemDns(): void {
     netmode.removeBackup(dnsBackupFile());
     netmodeLog('Системный DNS восстановлен');
     dnsApplied = false;
+    dnsAppliedAdapters = [];
 }
 
 /* После сбоя: вернуть прежние настройки DNS */

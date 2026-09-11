@@ -243,7 +243,7 @@
     };
 
     /* ---------- резольверы ---------- */
-    const resolverState = { list: [], loaded: false, selected: new Set() };
+    const resolverState = { list: [], loaded: false, selected: new Set(), bootstrap: [] };
 
     const resolverVisible = () => {
         const q = ($('#resolverSearch')?.value || '').toLowerCase();
@@ -298,6 +298,7 @@
 
     const syncResolverSelection = (s) => {
         resolverState.selected = new Set(s?.dnscrypt?.servers || []);
+        resolverState.bootstrap = s?.dnscrypt?.bootstrap || [];
         renderResolverList();
         const controls = $('#resolverControls');
         if (controls) controls.classList.toggle('is-hidden', Boolean(s?.dnscrypt?.autoMode));
@@ -322,8 +323,32 @@
             $('#resolverControls')?.classList.toggle('is-hidden', e.target.checked);
         });
         $('#setBootstrap')?.addEventListener('change', (e) => {
-            const list = e.target.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-            if (list.length) UIBridge.invoke('settings:set', { dnscrypt: { bootstrap: list } });
+            /* Защита от дурака: мусор в bootstrap ломает dnscrypt, пустое поле
+             * молча игнорировалось — теперь валидируем IP:порт и отвечаем */
+            const raw = e.target.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+            const saved = resolverState.bootstrap || [];
+            if (!raw.length) {
+                e.target.value = saved.join(', ');
+                InvisUI.setStatus('Bootstrap: поле пустое — оставили прежний список', { error: true });
+                return;
+            }
+            const isIpPort = (s) => {
+                const m = s.match(/^(\[[0-9a-fA-F:]+\]|[0-9a-fA-F.:]+):(\d{1,5})$/);
+                if (!m) return false;
+                const port = Number(m[2]);
+                if (port < 1 || port > 65535) return false;
+                const host = m[1].replace(/^\[|\]$/g, '');
+                if (host.includes(':')) return /^[0-9a-fA-F:]+$/.test(host);
+                return host.split('.').every((o) => o !== '' && o.length <= 3 && /^\d+$/.test(o) && Number(o) <= 255);
+            };
+            const valid = raw.filter(isIpPort);
+            if (valid.length !== raw.length) {
+                const bad = raw.filter((t) => !isIpPort(t));
+                InvisUI.setStatus(`Bootstrap: «${bad.join('», «')}» не похоже на IP:порт — не сохранено`, { error: true });
+            }
+            if (!valid.length) { e.target.value = saved.join(', '); return; }
+            e.target.value = valid.join(', ');
+            UIBridge.invoke('settings:set', { dnscrypt: { bootstrap: valid } });
         });
         syncResolverSelection(await UIBridge.invoke('settings:get'));
     };
@@ -415,27 +440,32 @@
     };
 
     const initModules = async () => {
-        for (const btn of document.querySelectorAll('.module-toggle')) {
-            btn.addEventListener('click', () => {
-                const name = btn.dataset.module;
-                /* остановка dnscrypt при перехвате возвращает системный DNS — это заметная пауза */
-                if (name === 'dnscrypt' && moduleStates.dnscrypt === 'on') {
-                    InvisUI.showOverlay('Останавливаю DNSCrypt…', { hideOnState: true });
-                }
-                UIBridge.send('modules:toggle', name);
-            });
-        }
-        $('#startAllBtn')?.addEventListener('click', () => UIBridge.send('modules:start-all'));
-        $('#stopAllBtn')?.addEventListener('click', () => UIBridge.send('modules:stop-all'));
+        /* Прелоадер прячем в finally: упавший invoke больше не оставляет
+         * окно навсегда закрытым «загрузкой» (защита от дурака №1) */
+        try {
+            for (const btn of document.querySelectorAll('.module-toggle')) {
+                btn.addEventListener('click', () => {
+                    const name = btn.dataset.module;
+                    /* остановка dnscrypt при перехвате возвращает системный DNS — это заметная пауза */
+                    if (name === 'dnscrypt' && moduleStates.dnscrypt === 'on') {
+                        InvisUI.showOverlay('Останавливаю DNSCrypt…', { hideOnState: true });
+                    }
+                    UIBridge.send('modules:toggle', name);
+                });
+            }
+            $('#startAllBtn')?.addEventListener('click', () => UIBridge.send('modules:start-all'));
+            $('#stopAllBtn')?.addEventListener('click', () => UIBridge.send('modules:stop-all'));
 
-        UIBridge.on('modules:state', ({ name, state, status }) => applyModuleState(name, state, status));
+            UIBridge.on('modules:state', ({ name, state, status }) => applyModuleState(name, state, status));
 
-        /* Восстановить статусы при повторном открытии окна */
-        const current = await UIBridge.invoke('modules:status');
-        if (current) {
-            for (const [name, st] of Object.entries(current)) applyModuleState(name, st.state, st.status);
+            /* Восстановить статусы при повторном открытии окна */
+            const current = await UIBridge.invoke('modules:status');
+            if (current) {
+                for (const [name, st] of Object.entries(current)) applyModuleState(name, st.state, st.status);
+            }
+        } finally {
+            $('#appPreloader')?.classList.add('is-hidden');
         }
-        $('#appPreloader')?.classList.add('is-hidden');
     };
 
     /* ---------- «О программе» ---------- */
@@ -677,6 +707,20 @@
         $('#bridgesBlock')?.classList.toggle('is-hidden', !on);
         const ta = $('#setBridges');
         if (ta && document.activeElement !== ta) ta.value = s?.tor?.bridgesText || '';
+        /* Защита от дурака: «мосты включены» с пустым полем или транспортом
+         * без плагина выглядит как работающие мосты — показываем честный статус */
+        const hint = $('#bridgesHint');
+        if (hint) {
+            if (!on) hint.textContent = '';
+            else {
+                const lines = (s?.tor?.bridgesText || '').split(/\r?\n/)
+                    .map((l) => l.trim().replace(/^Bridge\s+/i, ''))
+                    .filter((l) => l && !l.startsWith('#'));
+                hint.textContent = !lines.length
+                    ? '⚠ Мосты включены, но строки пустые — Tor пойдёт напрямую, как без мостов'
+                    : `Строк мостов: ${lines.length} · транспорт по первой строке: ${lines[0].split(/\s+/)[0]} (в комплекте obfs4, conjure)`;
+            }
+        }
         const mins = $('#setNewIpMinutes');
         if (mins && document.activeElement !== mins) mins.value = s?.tor?.newIpMinutes || 0;
     };
@@ -813,6 +857,12 @@
     };
 
     const init = () => {
+        /* Защита от дурака: любой забытый reject становится видимым в статус-баре,
+         * а не молча умирает в консоли скрытого DevTools */
+        window.addEventListener('unhandledrejection', (e) => {
+            const r = e.reason;
+            InvisUI.setStatus('Сбой фоновой операции: ' + (r && r.message ? r.message : r), { error: true });
+        });
         CursorFx.init();
         initTitlebar();
         initTabs();
