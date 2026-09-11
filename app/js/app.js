@@ -42,7 +42,6 @@
         dnscrypt: { chip: 'chipDnscrypt', label: 'DNS', dot: 'dotDnscrypt', status: 'statusDnscrypt' },
         tor: { chip: 'chipTor', label: 'TOR', dot: 'dotTor', status: 'statusTor' },
         i2p: { chip: 'chipI2p', label: 'I2P', dot: 'dotI2p', status: 'statusI2p' },
-        openvpn: { chip: 'chipOpenvpn', label: 'VPN', dot: 'dotOpenvpn', status: 'statusOpenvpn' },
     };
 
     /* state: 'off' | 'busy' | 'on' | 'error' */
@@ -187,7 +186,7 @@
     const hideOverlayIfPending = () => { if (overlayHideOnState) hideOverlay(); };
 
     /* ---------- модули: состояния приходят из main (DaemonSupervisor) ---------- */
-    const moduleStates = { dnscrypt: 'off', tor: 'off', i2p: 'off', openvpn: 'off' };
+    const moduleStates = { dnscrypt: 'off', tor: 'off', i2p: 'off' };
 
     /* Текст статуса модуля: из события или дефолт по состоянию */
     const DEFAULT_STATUS = { off: 'остановлен', busy: 'запуск…', on: 'работает', error: 'ошибка' };
@@ -206,7 +205,7 @@
     };
 
     /* Сводный статус в контрол-баре */
-    const NAMES = { dnscrypt: 'DNSCrypt', tor: 'Tor', i2p: 'I2P', openvpn: 'OpenVPN' };
+    const NAMES = { dnscrypt: 'DNSCrypt', tor: 'Tor', i2p: 'I2P' };
     const updateAggregate = () => {
         const active = Object.entries(moduleStates).filter(([, s]) => s !== 'off');
         if (!active.length) { InvisUI.setStatus('Готов к работе'); return; }
@@ -835,8 +834,6 @@
         initTor();
         initTorCountries();
         initSpeedTest();
-        initModeSwitch();
-        initOpenvpn();
         initCopyProxy();
         initDiag();
         setStatus('Готов к работе');

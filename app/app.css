@@ -225,38 +225,24 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
     background: #2a2a44; color: #a5b4ff; font-size: 11px; text-align: center;
 }
 
-/* ---------- Переключатель режима приватности (Tor / OpenVPN) ---------- */
-.mode-switch {
-    display: inline-flex; gap: 4px; padding: 4px; margin: 4px 0 14px;
-    background: #23233a; border: 1px solid #35355a; border-radius: 12px;
-    align-items: center;
-}
-.mode-pill {
-    display: inline-flex; align-items: center; gap: 7px;
-    padding: 7px 18px; border: none; border-radius: 9px; cursor: pointer;
-    background: transparent; color: #9aa0c3; font-size: 13px; font-weight: 600;
-    transition: all .18s ease;
-}
-.mode-pill:hover { color: #dfe3ff; }
-.mode-pill.active {
-    background: linear-gradient(135deg, #6d5dfc, #8a6bff);
-    color: #fff;
-    box-shadow: 0 2px 14px rgba(122, 96, 255, .45);
-}
-.mode-hint { margin-left: 10px; }
 
-/* ---------- Строка сервера VPNGate ---------- */
-.vpngate-list {
-    max-height: 240px; overflow-y: auto; margin: 8px 0 4px;
-    border: 1px solid #313147; border-radius: 8px; padding: 6px 8px;
+/* ---------- Быстрый выбор страны выхода Tor (главная) ---------- */
+.quick-countries { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 14px; }
+.qc-label { font-size: 12px; color: #9aa0c3; margin-right: 2px; }
+.qc-pill {
+    padding: 4px 12px; border-radius: 999px; border: 1px solid #35355a;
+    background: #23233a; color: #9aa0c3; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all .15s ease;
 }
-.vpngate-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 6px 6px; border-radius: 6px; white-space: nowrap;
+.qc-pill:hover { color: #dfe3ff; border-color: #4a4a7a; }
+.qc-pill.active {
+    background: linear-gradient(135deg, #6d5dfc, #8a6bff); border-color: transparent;
+    color: #fff; box-shadow: 0 2px 10px rgba(122, 96, 255, .4);
 }
-.vpngate-row:hover { background: #26263f; }
-.vg-host { flex: 1; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #c9cdf0; }
-.vg-ping { min-width: 64px; text-align: right; font-size: 12px; color: #ffb56b; }
-.vg-ping.good { color: #7be2a1; }
-.vg-speed { min-width: 92px; text-align: right; font-size: 12px; color: #9aa0c3; }
-.vpngate-row .vg-connect { flex-shrink: 0; }
+
+/* ---------- Скорость в шапке ---------- */
+.titlebar-speed {
+    display: flex; align-items: center; height: 100%; margin-right: 12px;
+    font-size: 11px; color: #9aa0c3; -webkit-app-region: no-drag;
+    white-space: nowrap;
+}

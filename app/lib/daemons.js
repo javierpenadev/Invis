@@ -8,15 +8,6 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { PORTS, shortPathSync } = require('./configs');
-const { managementSignal } = require('./openvpn');
-
-/* Открытый OpenVPN, который не удалось остановить через management — фиксируем факт */
-function netmodeKillHint() {
-    try {
-        fs.appendFileSync(path.join(require('os').tmpdir(), 'invis-openvpn.log'),
-            new Date().toISOString() + ' stop failed (management unavailable)\n');
-    } catch (e) { /* не критично */ }
-}
 
 function probePort(port, timeout = 400) {
     return new Promise((resolve) => {
@@ -82,13 +73,6 @@ class DaemonSupervisor {
                 ],
                 probePort: PORTS.i2pHttp,
             },
-            openvpn: {
-                label: 'OpenVPN',
-                exe: null,                    // детект в main (установленный OpenVPN)
-                args: [],
-                readiness: 'logfile',         // статус по строкам лога
-                logFile: null,                // задаётся перед стартом
-            },
         };
         this.list = Object.keys(this.specs);
         this.state = {};
@@ -128,11 +112,6 @@ class DaemonSupervisor {
         st.status = 'запуск…';
         this.onState({ name, state: st.state, status: st.status });
 
-        /* OpenVPN: запуск от администратора (UAC), статус по его лог-файлу */
-        if (spec.readiness === 'logfile') {
-            this._startLogfileWatcher(name);
-            return;
-        }
 
         /* Лог сессии: перезаписывается при каждом старте */
         fs.mkdirSync(this.logDir, { recursive: true });
@@ -199,76 +178,6 @@ class DaemonSupervisor {
         this.specs.dnscrypt.portSuffix = ` (:${port})`;
     }
 
-    /* ---------- OpenVPN (kind logfile): процесс запущен извне (elevated),
-     * состояние читаем из его лог-файла ---------- */
-    _startLogfileWatcher(name) {
-        const spec = this.specs[name];
-        const st = this.state[name];
-        clearInterval(st.logTimer);
-        let seen = '';
-        const SIGNALS = spec.logSignals;
-        st.logTimer = setInterval(() => {
-            if (!st.proc) { clearInterval(st.logTimer); return; }
-            const log = fs.readFileSync(spec.logFile, 'utf8').slice(-32 * 1024);
-            const fresh = log.startsWith(seen) ? log.slice(seen.length) : log;
-            seen = log.slice(-16 * 1024);
-            if (!fresh) return;
-            for (const line of fresh.split(/\r?\n/)) {
-                if (line.trim()) this.logs[name]?.write(line + '\n');
-            }
-            if (SIGNALS.connected.test(fresh) && st.state === 'busy') {
-                this._set(name, 'on', 'подключено');
-            } else if (SIGNALS.authFailed.test(fresh) || SIGNALS.optionsError.test(fresh)
-                    || SIGNALS.tapError.test(fresh)) {
-                const m = fresh.match(/.*(AUTH_FAILED|OPTIONS ERROR.*|All TAP-Windows[^\n]*|Cannot open TAP[^\n]*)/i);
-                this._set(name, 'error', m ? m[1].slice(0, 90) : 'ошибка подключения');
-                clearInterval(st.logTimer);
-            } else if (/RESOLVE|Connecting to/i.test(fresh) && st.state === 'busy') {
-                this._set(name, 'busy', 'подключение…');
-            }
-        }, 1000);
-    }
-
-    /* Конфигурация openvpn перед стартом (exe/args/logFile) */
-    configureOpenvpn({ exe, args, logFile, logSignals }) {
-        this.specs.openvpn.exe = exe;
-        this.specs.openvpn.args = args;
-        this.specs.openvpn.logFile = logFile;
-        this.specs.openvpn.logSignals = logSignals;
-    }
-
-    /* Процесс запущен вне супервизора (elevated openvpn) — начать слежение по логу */
-    markStarted(name) {
-        const st = this.state[name];
-        if (!st || st.proc) return;
-        st.proc = { external: true };
-        st.state = 'busy';
-        st.status = 'подключение…';
-        this.onState({ name, state: st.state, status: st.status });
-        fs.mkdirSync(this.logDir, { recursive: true });
-        this.logs[name] = fs.createWriteStream(path.join(this.logDir, `${name}.log`), { flags: 'w' });
-        this._startLogfileWatcher(name);
-    }
-
-    _handleLine(name, line) {
-        const spec = this.specs[name];
-        const st = this.state[name];
-        if (spec.readiness === 'bootstrap') {
-            const m = line.match(/Bootstrapped (\d+)%/i);
-            if (m) {
-                const pct = Number(m[1]);
-                if (pct >= 100 && st.state === 'busy') this._set(name, 'on', 'работает');
-                else if (st.state === 'busy') this._set(name, 'busy', `${pct}%`);
-            }
-            if (/^\[err\]/i.test(line) && st.state === 'busy') this._set(name, 'error', line.slice(0, 120));
-        } else if (name === 'dnscrypt') {
-            if (/Now listening to/i.test(line) && st.state === 'busy') {
-                probePort(spec.probePort, 1500).then((ok) => {
-                    if (ok && st.state === 'busy') this._set(name, 'on', 'работает' + (spec.portSuffix || ''));
-                });
-            }
-        }
-    }
 
     stop(name) {
         const st = this.state[name];
@@ -276,21 +185,6 @@ class DaemonSupervisor {
         if (st.stopPromise) return st.stopPromise;
         st.stopping = true;
         this._set(name, 'busy', 'остановка…');
-        /* OpenVPN: штатный SIGTERM через management-порт (без повторного UAC) */
-        if (this.specs[name]?.readiness === 'logfile') {
-            clearInterval(st.logTimer);
-            st.stopPromise = managementSignal(this.specs[name].mgmtPort)
-                .catch(() => false)
-                .then((ok) => {
-                    st.proc = null;
-                    this.logs[name]?.end();
-                    this.logs[name] = null;
-                    this._set(name, ok ? 'off' : 'error', ok ? 'остановлен' : 'не удалось остановить (закройте вручную)');
-                    if (!ok) netmodeKillHint();
-                })
-                .finally(() => { st.stopPromise = null; });
-            return st.stopPromise;
-        }
         const proc = st.proc;
         st.stopPromise = new Promise((resolve) => {
             /* Резолвимся по 'exit', а не по завершению taskkill: 'exit' прилетает

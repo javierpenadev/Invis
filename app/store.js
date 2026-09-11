@@ -42,11 +42,6 @@ const DEFAULTS = {
         bridgesText: '',               // строки мостов, по одной на строку
         exitCountries: [],             // страны выхода (ISO-коды), пусто = любая
     },
-    privacyMode: 'tor',                // кто обслуживает приватный канал: 'tor' | 'openvpn'
-    openvpn: {                         // параметры OpenVPN-режима
-        lastConfig: '',                // путь к последнему .ovpn
-        managementPort: 17494,         // порт management-интерфейса (стоп/статус)
-    },
 };
 
 let filePath = null;

@@ -594,24 +594,6 @@ function applyLaunchWithWindows() {
     app.setLoginItemSettings({ openAtLogin: Boolean(settings.launchWithWindows) });
 }
 
-/* ---------- режим приватности: tor | openvpn (взаимоисключающие) ---------- */
-function setPrivacyMode(mode) {
-    if (mode !== 'tor' && mode !== 'openvpn') return settings;
-    if (mode === settings.privacyMode) return settings;
-    if (mode === 'openvpn') {
-        /* OpenVPN перехватывает весь трафик через TAP — гасим Tor и его прокси */
-        if (proxyEffectActive()) restoreSystemProxy();
-        if (supervisor?.isRunning('tor')) supervisor.stop('tor');
-    } else {
-        if (supervisor?.isRunning('openvpn')) supervisor.stop('openvpn');
-    }
-    settings = store.deepMerge(store.load(), { privacyMode: mode });
-    store.save(settings);
-    netmodeLog('Режим приватности: ' + mode);
-    sendToRenderer('settings:changed', settings);
-    return settings;
-}
-
 /* ---------- изменения настроек (общая точка: IPC и меню трея) ---------- */
 function setSetting(patch) {
     const lanChanged = patch.dnscrypt && patch.dnscrypt.lanAccess !== undefined
@@ -960,8 +942,7 @@ const { shell } = require('electron');
 const ipinfo = require('./lib/ipinfo');
 const onionoo = require('./lib/onionoo');
 const torspeed = require('./lib/torspeed');
-const vpngate = require('./lib/vpngate');
-const openvpn = require('./lib/openvpn');
+const netspeed = require('./lib/netspeed');
 
 ipcMain.handle('diag:run', async () => {
     const listen = dnsApplied ? 53 : PORTS.dnscrypt;
@@ -1029,78 +1010,10 @@ ipcMain.handle('bridges:fetch', async (_e, transport) => bridges.fetchBridges(tr
 ipcMain.handle('tor:countries', async (_e, { force } = {}) =>
     onionoo.exitCountries(store.baseDir(), { force }));
 
-ipcMain.handle('mode:set', (_e, mode) => setPrivacyMode(mode));
-
-/* ---------- OpenVPN ---------- */
-let openvpnExe = null;
-ipcMain.handle('openvpn:detect', () => {
-    openvpnExe = openvpn.detectExe(settings.openvpn?.customExe);
-    return { ok: Boolean(openvpnExe), exe: openvpnExe };
+ipcMain.handle('net:speed', async (_e, { viaTor } = {}) => {
+    try { return await netspeed.measure({ viaTor: Boolean(viaTor) }); }
+    catch (e) { throw new Error(e.message); }
 });
-
-ipcMain.handle('vpngate:list', async (_e, { force } = {}) => {
-    try { return vpngate.list(store.baseDir(), { force }); }
-    catch (e) { return { ok: false, error: e.message }; }
-});
-
-ipcMain.handle('vpngate:connect', async (_e, server) => {
-    if (!openvpnExe) return { ok: false, error: 'OpenVPN не найден — установите OpenVPN Community' };
-    let cfgPath;
-    try { cfgPath = vpngate.writeOvpn(path.join(store.baseDir(), 'configs'), server); }
-    catch (e) { return { ok: false, error: 'не удалось сохранить конфиг: ' + e.message }; }
-    return startOpenvpn(cfgPath, true);
-});
-
-ipcMain.handle('openvpn:connect-file', async (_e, filePath) => {
-    if (!openvpnExe) return { ok: false, error: 'OpenVPN не найден — установите OpenVPN Community' };
-    if (!filePath || !fs.existsSync(filePath)) return { ok: false, error: 'файл конфигурации не найден' };
-    return startOpenvpn(filePath, false);
-});
-
-ipcMain.handle('openvpn:import', async () => {
-    const res = await dialog.showOpenDialog(win, {
-        title: 'Импорт конфигурации OpenVPN',
-        filters: [{ name: 'OpenVPN config', extensions: ['ovpn', 'conf'] }],
-        properties: ['openFile'],
-    });
-    if (res.canceled || !res.filePaths.length) return null;
-    return res.filePaths[0];
-});
-
-function startOpenvpn(cfgPath, vpngateCreds) {
-    /* Эксклюзивность: гасим Tor и его системный прокси */
-    if (settings.privacyMode !== 'openvpn') setPrivacyMode('openvpn');
-    if (proxyEffectActive()) restoreSystemProxy();
-    if (supervisor?.isRunning('tor')) supervisor.stop('tor');
-
-    const logPath = path.join(store.baseDir(), 'logs', 'openvpn-tunnel.log');
-    try { fs.writeFileSync(logPath, '', 'utf8'); } catch (e) { /* создаст сам */ }
-    const mgmtPort = (settings.openvpn?.managementPort) || 17494;
-    let authFile = null;
-    if (vpngateCreds) {
-        authFile = path.join(store.baseDir(), 'configs', 'vpngate.auth');
-        try { fs.writeFileSync(authFile, 'vpn\nvpn\n', 'utf8'); } catch (e) { /* без кредов */ }
-    }
-    const args = openvpn.buildArgs({ configPath: cfgPath, logPath, mgmtPort, authFile });
-    supervisor.configureOpenvpn({
-        exe: openvpnExe,
-        args,
-        logFile: logPath,
-        mgmtPort,
-        logSignals: openvpn.SIGNALS,
-    });
-    supervisor.specs.openvpn.mgmtPort = mgmtPort;
-    settings = store.deepMerge(store.load(), { openvpn: { lastConfig: cfgPath } });
-    store.save(settings);
-    /* сам процесс — от администратора (TAP), супервизор следит по логу */
-    openvpn.startElevated(openvpnExe, args);
-    supervisor.markStarted('openvpn');
-    netmodeLog('OpenVPN: запущен ' + cfgPath + (vpngateCreds ? ' (VPNGate)' : ''));
-    sendToRenderer('modules:event', { text: 'OpenVPN: подключение (подтвердите UAC)…' });
-    return { ok: true };
-}
-
-ipcMain.on('openvpn:disconnect', () => { supervisor?.stop('openvpn'); });
 
 ipcMain.handle('tor:speedtest', async () => {
     if (!supervisor?.isRunning('tor')) {
